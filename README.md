@@ -1,9 +1,4 @@
-<br/>
 <div align="center">
-
-<a href="https://github.com/TheJaydenProject/webnovel-to-epub">
-  <img src="images/demo1.png" alt="Web Novel to EPUB" width="80" height="80">
-</a>
 
 <h3 align="center">Web Novel to EPUB</h3>
 
@@ -22,16 +17,16 @@
 
 ## About The Project
 
-![Demo screenshot](images/demo2.png)
+![Demo 1](images/demo1.png)
 
-Reading web novels is great. Downloading them to read offline on an e-reader is not -- at least not without the right tool. This extension solves that. Point it at any supported novel's table-of-contents page, pick your chapters, and it compiles everything into a clean, compressed EPUB ready to transfer to any device.
+![Demo 2](images/demo2.png)
 
-Here is what makes it worth using:
+A browser extension for downloading web novels as EPUB files. Give it a TOC page, select your chapters, and it packages the content with cover art and images into a compressed EPUB.
 
-- It reads the TOC page automatically to pull the title, author, chapter list, and cover art without any manual input
-- It handles Cloudflare-protected and login-gated sites by loading pages in a real background tab using your existing browser session
+- Reads the TOC page automatically to pull the title, author, chapter list, and cover art without any manual input
+- Handles Cloudflare-protected and login-gated sites by loading pages in a real background tab using your existing browser session
 - WuxiaWorld users get their API token auto-filled from an open wuxiaworld.com tab
-- The EPUB output is DEFLATE-compressed at level 9, so file sizes stay small
+- EPUB output is DEFLATE-compressed at level 9, so file sizes stay small
 - Auto-compile is on by default -- no need to click Compile after chapters finish loading
 - A Stop button lets you bail out early and still get an EPUB with whatever was fetched
 
@@ -136,7 +131,7 @@ Contributions are welcome.
 
 ## License
 
-Distributed under the MIT License. See [MIT License](https://opensource.org/licenses/MIT) for more information.
+Distributed under the MIT License. See [LICENSE](LICENSE) for more information.
 
 ## Contact
 
