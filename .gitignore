@@ -15,3 +15,4 @@ desktop.ini
 # Extension packaging artifacts
 *.zip
 *.xpi
+jszip.js
