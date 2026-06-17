@@ -1,0 +1,535 @@
+  /* ─── Design tokens ──────────────────────────────────────────────── */
+  :root {
+    --canvas:        #111216;
+    --surface:       #191B22;
+    --surface-low:   #0D0E12;
+    --surface-high:  #20222B;
+
+    --ink-0: #F2F2F7;
+    --ink-1: #A8AABF;
+    --ink-2: #686A80;
+    --ink-3: #3A3C52;
+
+    --line-0: rgba(255, 255, 255, 0.04);
+    --line-1: rgba(255, 255, 255, 0.09);
+    --line-2: rgba(255, 255, 255, 0.18);
+
+    --amber:     #F0C040;
+    --amber-dk:  #C89830;
+    --amber-bg:  rgba(240, 192, 64, 0.10);
+    --amber-ink: #0D0E12;
+
+    --red:    #C05A56;
+    --red-bg: rgba(192, 90, 86, 0.12);
+
+    --term-bg:   #09090D;
+    --term-line: rgba(240, 192, 64, 0.05);
+    --term-txt:  #BCB49A;
+    --term-dim:  #514D3E;
+
+    --f-sans: "Helvetica Neue", HelveticaNeue, Helvetica, "Nimbus Sans L", Arial, sans-serif;
+    --f-mono: "SF Mono", "Cascadia Mono", "Fira Mono", Consolas, monospace;
+
+    --sp1:  4px;
+    --sp2:  8px;
+    --sp3: 12px;
+    --sp4: 16px;
+    --sp5: 20px;
+    --sp6: 24px;
+    --sp7: 32px;
+    --sp8: 48px;
+
+    --r: 3px;
+  }
+
+  /* ─── Reset ──────────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { color-scheme: dark; font-size: 18px; }
+
+  body {
+    font-family: var(--f-sans);
+    background: var(--canvas);
+    color: var(--ink-0);
+    font-size: 0.875rem;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ─── Page shell ─────────────────────────────────────────────────── */
+  .page {
+    max-width: 840px;
+    margin: 0 auto;
+    padding: var(--sp7) var(--sp7) var(--sp8);
+  }
+
+  /* ─── Header ─────────────────────────────────────────────────────── */
+  .app-header {
+    display: flex;
+    align-items: center;
+    gap: var(--sp3);
+    padding-bottom: var(--sp5);
+    border-bottom: 1px solid var(--line-1);
+    margin-bottom: var(--sp7);
+  }
+  .app-header-icon {
+    color: var(--amber);
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .app-header h1 {
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.005em;
+    color: var(--ink-0);
+  }
+  .app-header-version {
+    margin-left: auto;
+    font-family: var(--f-mono);
+    font-size: 0.6875rem;
+    color: var(--ink-3);
+    letter-spacing: 0.06em;
+  }
+
+  /* ─── Panels ─────────────────────────────────────────────────────── */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line-1);
+    border-radius: var(--r);
+    padding: var(--sp6);
+    margin-bottom: var(--sp4);
+  }
+
+  @keyframes reveal {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  #bookInfo:not([hidden]),
+  #chapterSection:not([hidden]) {
+    animation: reveal 0.18s ease both;
+  }
+
+  /* ─── Section label ──────────────────────────────────────────────── */
+  .section-label {
+    display: flex;
+    align-items: center;
+    gap: var(--sp2);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    margin-bottom: var(--sp5);
+  }
+  .section-label::before {
+    content: "";
+    display: block;
+    width: 2px;
+    height: 11px;
+    background: var(--amber);
+    border-radius: 1px;
+    flex-shrink: 0;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp3);
+    flex-wrap: wrap;
+    margin-bottom: var(--sp5);
+  }
+  .panel-header .section-label { margin-bottom: 0; }
+
+  /* ─── Form fields ────────────────────────────────────────────────── */
+  .field { margin-bottom: var(--sp5); }
+  .field:last-child { margin-bottom: 0; }
+
+  .field-label {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--ink-1);
+    margin-bottom: var(--sp2);
+    letter-spacing: 0.01em;
+  }
+  .field-label-opt {
+    font-weight: 400;
+    color: var(--ink-2);
+  }
+
+  input[type="url"],
+  input[type="password"],
+  input[type="number"],
+  input[type="search"] {
+    display: block;
+    width: 100%;
+    font-family: var(--f-sans);
+    font-size: 0.875rem;
+    color: var(--ink-0);
+    background: var(--surface-low);
+    border: 1px solid var(--line-1);
+    border-radius: var(--r);
+    padding: 9px var(--sp3);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color 0.1s, box-shadow 0.1s;
+  }
+  input:focus-visible {
+    outline: none;
+    border-color: var(--amber);
+    box-shadow: 0 0 0 2px var(--amber-bg);
+  }
+  input::placeholder { color: var(--ink-3); }
+
+  /* Custom checkbox — amber fill, drawn checkmark */
+  input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 15px;
+    height: 15px;
+    border: 1px solid var(--line-2);
+    border-radius: 2px;
+    background: var(--surface-low);
+    cursor: pointer;
+    flex-shrink: 0;
+    position: relative;
+    transition: background 0.1s, border-color 0.1s;
+  }
+  input[type="checkbox"]:checked {
+    background: var(--amber);
+    border-color: var(--amber);
+  }
+  input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 1px;
+    width: 7px;
+    height: 4px;
+    border-left: 1.5px solid var(--amber-ink);
+    border-bottom: 1.5px solid var(--amber-ink);
+    transform: rotate(-45deg);
+  }
+  input[type="checkbox"]:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--amber-bg);
+  }
+
+  .hint {
+    font-size: 0.8125rem;
+    color: var(--ink-2);
+    line-height: 1.65;
+    margin-top: var(--sp2);
+  }
+
+  .toggle-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp2);
+    cursor: pointer;
+    margin-top: var(--sp4);
+  }
+  .toggle-row input[type="checkbox"] { margin-top: 1px; }
+  .toggle-row-text {
+    font-size: 0.875rem;
+    color: var(--ink-0);
+    line-height: 1.45;
+  }
+  .toggle-row-text .opt { color: var(--ink-2); }
+
+  .input-row {
+    display: flex;
+    gap: var(--sp2);
+    align-items: stretch;
+  }
+  .input-row input { flex: 1; min-width: 0; }
+  .input-row .btn  { flex-shrink: 0; align-self: stretch; }
+
+  /* ─── Advanced disclosure ────────────────────────────────────────── */
+  .advanced {
+    border: 1px solid var(--line-0);
+    border-radius: var(--r);
+    margin: var(--sp4) 0;
+    background: rgba(0, 0, 0, 0.14);
+  }
+  .advanced summary {
+    display: flex;
+    align-items: center;
+    gap: var(--sp2);
+    padding: var(--sp3) var(--sp4);
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--ink-1);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    transition: color 0.1s;
+  }
+  .advanced summary:hover { color: var(--ink-0); }
+  .advanced summary::-webkit-details-marker { display: none; }
+  .advanced summary svg {
+    color: var(--ink-2);
+    transition: transform 0.15s ease, color 0.1s;
+    flex-shrink: 0;
+  }
+  .advanced[open] summary svg { transform: rotate(90deg); color: var(--amber); }
+  .advanced-body {
+    padding: var(--sp4) var(--sp4) var(--sp5);
+    border-top: 1px solid var(--line-0);
+  }
+
+  /* ─── Action row ─────────────────────────────────────────────────── */
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--sp2);
+    margin-top: var(--sp5);
+    padding-top: var(--sp5);
+    border-top: 1px solid var(--line-0);
+  }
+
+  /* ─── Buttons ────────────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp2);
+    font-family: var(--f-sans);
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 8px var(--sp4);
+    border-radius: var(--r);
+    border: 1px solid transparent;
+    cursor: pointer;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    transition: background 0.1s, border-color 0.1s, color 0.1s;
+  }
+  .btn:disabled { opacity: 0.38; cursor: not-allowed; pointer-events: none; }
+  .btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--amber-bg); }
+
+  .btn-primary {
+    background: var(--amber);
+    border-color: var(--amber);
+    color: var(--amber-ink);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--amber-dk);
+    border-color: var(--amber-dk);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    border-color: var(--line-2);
+    color: var(--ink-0);
+  }
+  .btn-secondary:hover:not(:disabled) { background: var(--surface-high); }
+
+  .btn-ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--ink-1);
+  }
+  .btn-ghost:hover:not(:disabled) { background: var(--surface-high); color: var(--ink-0); }
+
+  .btn-stop {
+    background: transparent;
+    border-color: var(--line-1);
+    color: var(--ink-1);
+  }
+  .btn-stop:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+  .btn-stop:focus-visible { box-shadow: 0 0 0 2px var(--red-bg); }
+
+  /* ─── Book info ──────────────────────────────────────────────────── */
+  .book-info {
+    display: flex;
+    gap: var(--sp6);
+    align-items: flex-start;
+  }
+  .cover-frame {
+    position: relative;
+    width: 84px;
+    height: 118px;
+    flex-shrink: 0;
+    border: 1px solid var(--line-1);
+    border-radius: var(--r);
+    background: var(--surface-low);
+    overflow: hidden;
+  }
+  .cover-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink-3);
+  }
+  #coverPreview {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .book-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding-top: 2px;
+  }
+  .book-meta h2 {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink-0);
+    line-height: 1.3;
+  }
+  .book-meta p {
+    font-size: 0.875rem;
+    color: var(--ink-1);
+  }
+
+  /* ─── Chapters toolbar ───────────────────────────────────────────── */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp2);
+    flex-wrap: wrap;
+  }
+  .range-group {
+    display: flex;
+    align-items: center;
+    gap: var(--sp2);
+    padding-left: var(--sp3);
+    margin-left: var(--sp1);
+    border-left: 1px solid var(--line-0);
+  }
+  .range-group label {
+    display: flex;
+    align-items: center;
+    gap: var(--sp1);
+    font-size: 0.8125rem;
+    color: var(--ink-1);
+    white-space: nowrap;
+    cursor: default;
+  }
+  .range-group input[type="number"] { width: 4.25rem; }
+
+  /* ─── Chapter list ───────────────────────────────────────────────── */
+  .chapter-list {
+    list-style: none;
+    border: 1px solid var(--line-1);
+    border-radius: var(--r);
+    max-height: 460px;
+    overflow-y: auto;
+    margin-bottom: var(--sp5);
+    scrollbar-width: thin;
+    scrollbar-color: var(--ink-3) transparent;
+  }
+  .chapter-list::-webkit-scrollbar { width: 4px; }
+  .chapter-list::-webkit-scrollbar-track { background: transparent; }
+  .chapter-list::-webkit-scrollbar-thumb { background: var(--ink-3); border-radius: 2px; }
+
+  .chapter-row { border-bottom: 1px solid var(--line-0); }
+  .chapter-row:last-child { border-bottom: none; }
+
+  .chapter-row-label {
+    display: flex;
+    align-items: center;
+    gap: var(--sp3);
+    padding: 9px var(--sp4);
+    cursor: pointer;
+    transition: background 0.08s;
+  }
+  .chapter-row-label:hover { background: var(--surface-high); }
+
+  .chapter-index {
+    font-family: var(--f-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 0.75rem;
+    color: var(--ink-2);
+    flex-shrink: 0;
+    min-width: 2.5rem;
+  }
+  .chapter-title {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.875rem;
+    color: var(--ink-0);
+  }
+  /* Dot leader: flex-grow track clipped by overflow, scaled by content width */
+  .chapter-leader {
+    flex: 1 1 0%;
+    min-width: var(--sp4);
+    overflow: hidden;
+    white-space: nowrap;
+    color: var(--ink-3);
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+  }
+  .chapter-leader::after {
+    content: ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .";
+  }
+
+  /* ─── Progress bar ───────────────────────────────────────────────── */
+  progress {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    width: 100%;
+    height: 2px;
+    border: none;
+    border-radius: 1px;
+    background: var(--line-1);
+    margin-bottom: var(--sp4);
+  }
+  progress::-webkit-progress-bar  { background: var(--line-1); border-radius: 1px; }
+  progress::-webkit-progress-value { background: var(--amber);  border-radius: 1px; transition: width 0.2s ease; }
+  progress::-moz-progress-bar     { background: var(--amber);  border-radius: 1px; }
+
+  progress:indeterminate::-webkit-progress-value {
+    width: 35%;
+    animation: prog-slide 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  progress:indeterminate::-moz-progress-bar {
+    width: 35%;
+    animation: prog-slide 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  @keyframes prog-slide {
+    0%   { margin-left: 0; }
+    50%  { margin-left: 65%; }
+    100% { margin-left: 0; }
+  }
+
+  /* ─── Log terminal ───────────────────────────────────────────────── */
+  #log {
+    font-family: var(--f-mono);
+    font-size: 0.75rem;
+    line-height: 1.75;
+    color: var(--term-txt);
+    background: var(--term-bg);
+    border: 1px solid var(--term-line);
+    border-radius: var(--r);
+    padding: var(--sp3) var(--sp4);
+    height: 280px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    scrollbar-width: thin;
+    scrollbar-color: var(--ink-3) transparent;
+  }
+  #log::-webkit-scrollbar { width: 4px; }
+  #log::-webkit-scrollbar-track { background: transparent; }
+  #log::-webkit-scrollbar-thumb { background: var(--ink-3); border-radius: 2px; }
+  #log:empty::before {
+    content: "Ready — load a novel to see progress.";
+    color: var(--term-dim);
+    font-style: italic;
+  }
+
+  /* ─── Utility ────────────────────────────────────────────────────── */
+  [hidden] { display: none !important; }
