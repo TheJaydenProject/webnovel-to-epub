@@ -1,5 +1,18 @@
 // Declarative per-site scraping configuration. To support a new site, add
 // an entry here - no other code should need to change.
+
+// Boilerplate element patterns common to virtually every site config below -
+// merged into each site's own elementBlacklist instead of repeating it.
+const DEFAULT_ELEMENT_BLACKLIST = [
+  "script",
+  "style",
+  "noscript",
+  "iframe",
+  "ins",
+  '[class*="ad-"]',
+  '[class*="advert"]',
+];
+
 export const SITE_CONFIGS = [
   {
     id: "wattpad",
@@ -40,15 +53,9 @@ export const SITE_CONFIGS = [
     },
     siteName: "Wattpad",
     elementBlacklist: [
-      "script",
-      "style",
-      "noscript",
-      "iframe",
-      "ins",
+      ...DEFAULT_ELEMENT_BLACKLIST,
       // Empty placeholder for Wattpad's text-to-speech widget.
       ".trinityAudioPlaceholder",
-      '[class*="ad-"]',
-      '[class*="advert"]',
     ],
     fetchIntervalBase: 800,
     fetchJitterRange: 600,
@@ -90,15 +97,9 @@ export const SITE_CONFIGS = [
     },
     siteName: "Wuxiaworld",
     elementBlacklist: [
-      "script",
-      "style",
-      "noscript",
-      "iframe",
-      "ins",
+      ...DEFAULT_ELEMENT_BLACKLIST,
       // Inline "comment on this paragraph" buttons/badges.
       "button",
-      '[class*="ad-"]',
-      '[class*="advert"]',
     ],
     fetchIntervalBase: 800,
     fetchJitterRange: 600,
@@ -142,13 +143,7 @@ export const SITE_CONFIGS = [
     },
     siteName: "Ranovel",
     elementBlacklist: [
-      "script",
-      "style",
-      "noscript",
-      "iframe",
-      "ins",
-      '[class*="ad-"]',
-      '[class*="advert"]',
+      ...DEFAULT_ELEMENT_BLACKLIST,
       // Wraps a maintenance notice, the Ko-fi "Buy me a coffee" button, ad
       // scripts (Monetag/Pubfuture), and a hidden "ranovel.com" watermark
       // paragraph (text color matches its background, so it's invisible on
@@ -205,16 +200,10 @@ export const SITE_CONFIGS = [
     },
     siteName: "Read on NovelArrow",
     elementBlacklist: [
-      "script",
-      "style",
-      "noscript",
-      "iframe",
-      "ins",
+      ...DEFAULT_ELEMENT_BLACKLIST,
       // The chapter title heading - already shown via the EPUB's own
       // chapter title, so drop it from the body to avoid duplication.
       "h2",
-      '[class*="ad-"]',
-      '[class*="advert"]',
     ],
     fetchIntervalBase: 800,
     fetchJitterRange: 600,
@@ -246,15 +235,7 @@ export const SITE_CONFIGS = [
       nextLinkTextMatch: /^\s*next/i,
     },
     siteName: "Royal Road",
-    elementBlacklist: [
-      "script",
-      "style",
-      "noscript",
-      "iframe",
-      "ins",
-      '[class*="ad-"]',
-      '[class*="advert"]',
-    ],
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
     // Royal Road injects a hidden "stolen content" trap paragraph into each
     // chapter with a randomized per-request class name, hidden via an inline
     // <style> rule (display:none) - strip whatever that rule targets.
@@ -291,15 +272,7 @@ export const SITE_CONFIGS = [
       nextLinkTextMatch: /^\s*next/i,
     },
     siteName: "Scribble Hub",
-    elementBlacklist: [
-      "script",
-      "style",
-      "noscript",
-      "iframe",
-      "ins",
-      '[class*="ad-"]',
-      '[class*="advert"]',
-    ],
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
     fetchIntervalBase: 800,
     fetchJitterRange: 600,
   },
@@ -334,15 +307,9 @@ export const SITE_CONFIGS = [
     },
     siteName: "Novel Fire",
     elementBlacklist: [
-      "script",
-      "style",
-      "noscript",
-      "iframe",
-      "ins",
+      ...DEFAULT_ELEMENT_BLACKLIST,
       // In-content ad placeholders.
       ".nf-ads",
-      '[class*="ad-"]',
-      '[class*="advert"]',
     ],
     fetchIntervalBase: 800,
     fetchJitterRange: 600,
@@ -378,15 +345,7 @@ export const SITE_CONFIGS = [
     // <title> as " - The Mysterious Art Museum", used to strip it from
     // chapter titles.
     siteName: "The Mysterious Art Museum",
-    elementBlacklist: [
-      "script",
-      "style",
-      "noscript",
-      "iframe",
-      "ins",
-      '[class*="ad-"]',
-      '[class*="advert"]',
-    ],
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
     // The cover image and a "Bonus chapter thanks to..." blurb are injected
     // into #post-body as direct children with inline style="display:none" -
     // strip those.
@@ -420,15 +379,7 @@ export const SITE_CONFIGS = [
       nextLinkTextMatch: /^\s*next/i,
     },
     siteName: "NovelBuddy",
-    elementBlacklist: [
-      "script",
-      "style",
-      "noscript",
-      "iframe",
-      "ins",
-      '[class*="ad-"]',
-      '[class*="advert"]',
-    ],
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
     fetchIntervalBase: 800,
     fetchJitterRange: 600,
   },
@@ -469,15 +420,7 @@ export const SITE_CONFIGS = [
       chapterTitleSourceRegex: /#(.+?)\s*-\s*Read\s+/,
     },
     siteName: "Novel Bin",
-    elementBlacklist: [
-      "script",
-      "style",
-      "noscript",
-      "iframe",
-      "ins",
-      '[class*="ad-"]',
-      '[class*="advert"]',
-    ],
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
     fetchIntervalBase: 800,
     fetchJitterRange: 600,
   },
@@ -520,15 +463,7 @@ export const SITE_CONFIGS = [
       nextLinkTextMatch: /^\s*next/i,
     },
     siteName: "Fenrir Realm",
-    elementBlacklist: [
-      "script",
-      "style",
-      "noscript",
-      "iframe",
-      "ins",
-      '[class*="ad-"]',
-      '[class*="advert"]',
-    ],
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
     fetchIntervalBase: 800,
     fetchJitterRange: 600,
   },
@@ -571,15 +506,7 @@ export const SITE_CONFIGS = [
       nextLinkUrlPrefix: "/chapter/",
     },
     siteName: "NovelVerse",
-    elementBlacklist: [
-      "script",
-      "style",
-      "noscript",
-      "iframe",
-      "ins",
-      '[class*="ad-"]',
-      '[class*="advert"]',
-    ],
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
     fetchIntervalBase: 800,
     fetchJitterRange: 600,
   },
@@ -620,15 +547,7 @@ export const SITE_CONFIGS = [
       lockedTextMatch: /^\s*$/,
     },
     siteName: "We Tried TLS",
-    elementBlacklist: [
-      "script",
-      "style",
-      "noscript",
-      "iframe",
-      "ins",
-      '[class*="ad-"]',
-      '[class*="advert"]',
-    ],
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
     fetchIntervalBase: 800,
     fetchJitterRange: 600,
   },
@@ -663,22 +582,44 @@ export const SITE_CONFIGS = [
       nextLinkTextMatch: /^\s*next/i,
     },
     siteName: "Dreamy Translations",
-    elementBlacklist: [
-      "script",
-      "style",
-      "noscript",
-      "iframe",
-      "ins",
-      '[class*="ad-"]',
-      '[class*="advert"]',
-    ],
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
     fetchIntervalBase: 800,
     fetchJitterRange: 600,
   },
 ];
 
-// Returns the matching site config for a URL, or null if none configured.
+// Best-effort fallback for sites with no dedicated entry above. Content is
+// located via ContentDetector's auto-detection (bodySelector: null) instead
+// of a hand-picked selector, and "next chapter" discovery matches any link
+// whose text starts with "next" - much less precise than a real config, but
+// lets unlisted sites work at all via the "First chapter URL" field. There's
+// no reliable generic way to discover a full chapter list from a TOC page,
+// so this doesn't support the "Novel index URL only" discovery path.
+function buildGenericConfig(hostname) {
+  return {
+    id: "generic",
+    hostnamePattern: null,
+    toc: {
+      titleSelector: "title",
+      coverSelector: 'meta[property="og:image"]',
+      coverAttr: "content",
+      linksSelector: null,
+    },
+    content: {
+      bodySelector: null,
+      nextLinkSelector: "a",
+      nextLinkTextMatch: /^\s*next/i,
+    },
+    siteName: hostname,
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
+    fetchIntervalBase: 1200,
+    fetchJitterRange: 800,
+  };
+}
+
+// Returns the matching site config for a URL, falling back to a generic
+// best-effort config (see buildGenericConfig) if none is configured.
 export function getConfigForUrl(url) {
   const hostname = new URL(url).hostname;
-  return SITE_CONFIGS.find((c) => c.hostnamePattern.test(hostname)) || null;
+  return SITE_CONFIGS.find((c) => c.hostnamePattern.test(hostname)) || buildGenericConfig(hostname);
 }

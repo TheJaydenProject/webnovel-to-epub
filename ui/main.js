@@ -1,5 +1,6 @@
 import { getConfigForUrl } from "../core/ParserRegistry.js";
 import { extractChapterTitle, sanitizeChapterContent } from "../core/ContentSanitizer.js";
+import { findLikelyContentElement } from "../core/ContentDetector.js";
 import { EpubCompiler } from "../core/EpubCompiler.js";
 import * as WuxiaworldApi from "../core/WuxiaworldApi.js";
 
@@ -47,6 +48,31 @@ let state = {
   coverUrl: null,
   chapters: [],
 };
+
+// In-memory cache of fetched pages/images, keyed by URL - avoids re-fetching
+// content already retrieved earlier in the same session (e.g. after Stop and
+// recompiling with an overlapping chapter range). Cleared on page reload
+// only; never persisted, so it can't serve stale content across sessions.
+const pageCache = new Map(); // url -> html string
+const imageCache = new Map(); // url -> { blob, ext }
+
+const THROTTLE_MAX_MULTIPLIER = 8;
+
+// Doubles the per-request delay (capped) when a site responds with an
+// explicit rate-limit/overload signal, similar in spirit to Scrapling's
+// AutoThrottle - without per-domain response-time tracking, just a simple
+// multiplier that grows on trouble and decays back to normal on success.
+function bumpThrottle(fetchState, status) {
+  const next = Math.min((fetchState.throttleMultiplier ?? 1) * 2, THROTTLE_MAX_MULTIPLIER);
+  if (next !== fetchState.throttleMultiplier) {
+    log(`  Got HTTP ${status} - slowing down (delay x${next.toFixed(1)}).`);
+  }
+  fetchState.throttleMultiplier = next;
+}
+
+function decayThrottle(fetchState) {
+  fetchState.throttleMultiplier = Math.max(1, (fetchState.throttleMultiplier ?? 1) * 0.85);
+}
 
 // Safety cap for "next chapter" link-walking discovery, in case of a
 // misconfigured selector that never terminates. Cycle detection (the
@@ -172,17 +198,19 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function politeDelay(config) {
+function politeDelay(config, fetchState) {
   const base = config.fetchIntervalBase ?? 1000;
   const jitter = config.fetchJitterRange ?? 0;
-  return base + Math.random() * jitter;
+  const multiplier = fetchState?.throttleMultiplier ?? 1;
+  return (base + Math.random() * jitter) * multiplier;
 }
 
 function sanitizeFilename(name) {
   return name.replace(/[\\/:*?"<>|]+/g, "_").trim() || "book";
 }
 
-async function fetchImage(url) {
+async function fetchImage(url, fetchState) {
+  if (imageCache.has(url)) return imageCache.get(url);
   let res;
   try {
     res = await fetch(url, { credentials: "include" });
@@ -192,17 +220,27 @@ async function fetchImage(url) {
     // credentialed requests - retry without cookies for those.
     res = await fetch(url);
   }
+  if (res.status === 429 || res.status === 503) bumpThrottle(fetchState, res.status);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const blob = await res.blob();
   const mime = res.headers.get("content-type")?.split(";")[0];
   const ext = EXT_FOR_MIME[mime] || "jpg";
-  return { blob, ext };
+  const result = { blob, ext };
+  imageCache.set(url, result);
+  return result;
 }
 
 async function fetchFast(url) {
+  if (pageCache.has(url)) return pageCache.get(url);
   const res = await fetch(url, { credentials: "include", cache: "no-store" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.text();
+  if (!res.ok) {
+    const err = new Error(`HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  const html = await res.text();
+  pageCache.set(url, html);
+  return html;
 }
 
 // Fetches a page's HTML. Normally a plain `fetch` is used, but extension
@@ -214,6 +252,21 @@ async function fetchFast(url) {
 async function fetchPage(url) {
   if (els.useTabFetch.checked) return fetchViaTab(url);
   return fetchFast(url);
+}
+
+// Locates a chapter's content container: the configured selector if it
+// matches, otherwise ContentDetector's auto-detected best guess. Used for
+// the generic fallback config (bodySelector: null), and as a safety net if
+// a listed site's selector stops matching after a redesign.
+function findChapterBody(doc, config) {
+  if (config.content.bodySelector) {
+    const selected = doc.querySelector(config.content.bodySelector);
+    if (selected) return selected;
+    const fallback = findLikelyContentElement(doc);
+    if (fallback) log("  Note: configured selector didn't match - using auto-detected content instead.");
+    return fallback;
+  }
+  return findLikelyContentElement(doc);
 }
 
 // True if the fetched chapter HTML looks like a paywalled/teaser version
@@ -242,6 +295,7 @@ async function fetchChapterPage(url, config, fetchState) {
   try {
     html = await fetchFast(url);
   } catch (err) {
+    if (err.status === 429 || err.status === 503) bumpThrottle(fetchState, err.status);
     // A non-2xx response (e.g. a Cloudflare challenge page served as 403)
     // never reaches the locked-content check below - treat it the same way
     // and retry via a real browser tab.
@@ -252,7 +306,10 @@ async function fetchChapterPage(url, config, fetchState) {
     return tabHtml;
   }
 
-  if (!looksLocked(html, config)) return html;
+  if (!looksLocked(html, config)) {
+    decayThrottle(fetchState);
+    return html;
+  }
 
   log("  This chapter looks locked via normal fetch - retrying with browser tab...");
   const tabHtml = await fetchViaTab(url, tabDelay);
@@ -284,6 +341,7 @@ function waitForTabLoad(tabId, timeoutMs = 30000) {
 }
 
 async function fetchViaTab(url, delay = 1000) {
+  if (pageCache.has(url)) return pageCache.get(url);
   const tab = await browser.tabs.create({ url, active: false });
   try {
     await waitForTabLoad(tab.id);
@@ -294,7 +352,9 @@ async function fetchViaTab(url, delay = 1000) {
       target: { tabId: tab.id },
       func: () => document.documentElement.outerHTML,
     });
-    return results[0]?.result ?? "";
+    const html = results[0]?.result ?? "";
+    pageCache.set(url, html);
+    return html;
   } finally {
     await browser.tabs.remove(tab.id).catch(() => {});
   }
@@ -322,9 +382,11 @@ els.loadBtn.addEventListener("click", async () => {
   const firstChapterUrl = els.firstChapterUrl.value.trim();
   if (!tocUrl && !firstChapterUrl) return;
   const config = getConfigForUrl(firstChapterUrl || tocUrl);
-  if (!config) {
+  if (config.id === "generic" && !firstChapterUrl) {
     els.log.textContent = "";
-    log("This site is not supported yet. Check that the URL is correct, or open an issue to request support for it.");
+    log(
+      'This site isn\'t specifically supported, and a full index page can\'t be auto-discovered for unlisted sites - fill in "First chapter URL" too, so chapters can be found by following "next chapter" links.'
+    );
     return;
   }
   els.loadBtn.disabled = true;
@@ -533,9 +595,13 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
   cancelRequested = false;
   els.stopBtn.disabled = false;
 
+  if (config.id === "generic") {
+    log(`This site isn't specifically supported - using best-effort auto-detection for content and "next chapter" links.`);
+  }
+
   const chapters = [];
   const seen = new Set();
-  const fetchState = { forceTabFetch: false };
+  const fetchState = { forceTabFetch: false, throttleMultiplier: 1 };
   let nextUrl = firstChapterUrl;
   let index = 1;
 
@@ -560,7 +626,7 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
     index += 1;
 
     if (nextUrl) {
-      await sleep(politeDelay(config));
+      await sleep(politeDelay(config, fetchState));
     }
   }
 
@@ -709,11 +775,12 @@ async function compile() {
   }
 
   const compiler = new EpubCompiler({ title: novelTitle, author });
+  const fetchState = { forceTabFetch: false, throttleMultiplier: 1 };
 
   if (coverUrl) {
     log("Fetching cover image...");
     try {
-      const { blob, ext } = await fetchImage(coverUrl);
+      const { blob, ext } = await fetchImage(coverUrl, fetchState);
       compiler.setCover(`cover.${ext}`, blob);
     } catch (err) {
       log(`Warning: could not fetch cover image (${err.message}).`);
@@ -732,8 +799,6 @@ async function compile() {
 
   els.progressBar.max = selected.length;
   els.progressBar.value = 0;
-
-  const fetchState = { forceTabFetch: false };
 
   for (const [i, chapter] of selected.entries()) {
     if (cancelRequested) {
@@ -757,7 +822,7 @@ async function compile() {
       } else {
         const html = await fetchChapterPage(chapter.href, config, fetchState);
         const doc = new DOMParser().parseFromString(html, "text/html");
-        const body = doc.querySelector(config.content.bodySelector);
+        const body = findChapterBody(doc, config);
         if (!body) throw new Error("content container not found");
 
         const chapterTitle = extractChapterTitle(doc, novelTitle, config.siteName, config) || chapter.label;
@@ -770,7 +835,7 @@ async function compile() {
 
           for (let pageNum = 2; pageNum <= 50; pageNum++) {
             const pageUrl = baseUrl + pageUrlSuffix + pageNum;
-            await sleep(politeDelay(config));
+            await sleep(politeDelay(config, fetchState));
             let pageHtml;
             try {
               pageHtml = await fetchChapterPage(pageUrl, config, fetchState);
@@ -778,7 +843,7 @@ async function compile() {
               break; // 404 or network error — no more pages
             }
             const pageDoc = new DOMParser().parseFromString(pageHtml, "text/html");
-            const pageBody = pageDoc.querySelector(config.content.bodySelector);
+            const pageBody = findChapterBody(pageDoc, config);
             if (!pageBody) break;
             const snippet = pageBody.textContent.trim().slice(0, 80);
             if (!snippet || snippet === prevSnippet) break; // empty or redirect loop
@@ -799,7 +864,7 @@ async function compile() {
     els.progressBar.value = i + 1;
 
     if (i < selected.length - 1) {
-      await sleep(politeDelay(config));
+      await sleep(politeDelay(config, fetchState));
     }
   }
 
@@ -827,7 +892,7 @@ async function compile() {
 
     log(`Fetching image ${absoluteUrl}`);
     try {
-      const { blob, ext } = await fetchImage(absoluteUrl);
+      const { blob, ext } = await fetchImage(absoluteUrl, fetchState);
       const filename = `${placeholder}.${ext}`;
       compiler.addImage(filename, blob);
       resolution.set(placeholder, filename);
@@ -836,7 +901,7 @@ async function compile() {
       resolution.set(placeholder, null);
     }
     if (i < imageEntries.length - 1) {
-      await sleep(politeDelay(config));
+      await sleep(politeDelay(config, fetchState));
     }
   }
 
