@@ -12,6 +12,10 @@
 
 const API_BASE = "https://api2.wuxiaworld.com";
 const SERVICE = "wuxiaworld.api.v2";
+// Snapshot of WuxiaWorld's own frontend build ID, sent on every request. If
+// their backend starts rejecting stale client versions, every call in this
+// file will start failing at once - check wuxiaworld.com's current bundle
+// for a newer value if requests here suddenly break.
 const CLIENT_VERSION = "2.11.01-c17e9a86";
 
 // --- Protobuf wire-format encoding (request side) ---

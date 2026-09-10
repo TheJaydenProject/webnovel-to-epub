@@ -118,7 +118,14 @@ function cleanNode(node, doc, baseUrl, registerImage) {
   const tag = node.tagName.toLowerCase();
 
   if (tag === "img") {
-    const src = node.getAttribute("src");
+    let src = node.getAttribute("src");
+    if (!src) {
+      // Responsive images with only `srcset` (no plain `src`) would
+      // otherwise be dropped entirely - fall back to the first candidate's
+      // URL (stripping its trailing width/density descriptor, e.g. "800w").
+      const srcset = node.getAttribute("srcset");
+      src = srcset?.split(",")[0]?.trim().split(/\s+/)[0];
+    }
     if (!src) return [];
     const absoluteUrl = new URL(src, baseUrl).href;
     const localFilename = registerImage(absoluteUrl);

@@ -27,7 +27,10 @@ const els = {
   progressBar: document.getElementById("progressBar"),
   stopBtn: document.getElementById("stopBtn"),
   log: document.getElementById("log"),
+  appVersion: document.getElementById("appVersion"),
 };
+
+els.appVersion.textContent = `v${browser.runtime.getManifest().version}`;
 
 const EXT_FOR_MIME = {
   "image/jpeg": "jpg",
@@ -480,7 +483,10 @@ function populateBookUi() {
   renderChapterList();
   els.chapterSection.hidden = false;
   els.rangeFrom.value = 1;
-  els.rangeTo.value = chapters.length;
+  // Chapter numbers can have gaps (e.g. WuxiaWorld API loads filter out
+  // locked chapters but keep their original chapterNumber as `index`), so
+  // the highest chapter number isn't always the same as the chapter count.
+  els.rangeTo.value = chapters.length ? Math.max(...chapters.map((c) => c.index)) : 0;
 }
 
 // Fallback chapter discovery for sites with a broken/missing TOC: starting
@@ -806,8 +812,14 @@ async function compile() {
   // placeholder paths in each chapter to the real localized filenames.
   // Images that fail to fetch get their <img> tag stripped instead of
   // shipping a broken reference.
+  log(
+    imageRegistry.size > 0
+      ? `Found ${imageRegistry.size} image(s) to fetch.`
+      : "No images found in the selected chapters."
+  );
+  const imageEntries = Array.from(imageRegistry.entries());
   const resolution = new Map(); // placeholder -> filename | null
-  for (const [absoluteUrl, placeholder] of imageRegistry) {
+  for (const [i, [absoluteUrl, placeholder]] of imageEntries.entries()) {
     if (cancelRequested) {
       log("Stopped by user - skipping remaining images.");
       break;
@@ -823,7 +835,9 @@ async function compile() {
       log(`  Warning: could not fetch image (${err.message}).`);
       resolution.set(placeholder, null);
     }
-    await sleep(politeDelay(config));
+    if (i < imageEntries.length - 1) {
+      await sleep(politeDelay(config));
+    }
   }
 
   // Any image never attempted (e.g. discovery was stopped early) gets its
