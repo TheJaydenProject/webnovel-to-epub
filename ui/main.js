@@ -180,7 +180,15 @@ function sanitizeFilename(name) {
 }
 
 async function fetchImage(url) {
-  const res = await fetch(url, { credentials: "include" });
+  let res;
+  try {
+    res = await fetch(url, { credentials: "include" });
+  } catch {
+    // Many image CDNs (S3, Supabase, etc.) send a wildcard
+    // `Access-Control-Allow-Origin: *`, which browsers reject outright for
+    // credentialed requests - retry without cookies for those.
+    res = await fetch(url);
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const blob = await res.blob();
   const mime = res.headers.get("content-type")?.split(";")[0];
