@@ -564,8 +564,10 @@ export const SITE_CONFIGS = [
     toc: {
       titleSelector: 'meta[property="og:title"]',
       titleAttr: "content",
-      coverSelector: 'meta[property="og:image"]',
-      coverAttr: "content",
+      // og:image points at a square-cropped social-preview thumbnail, not
+      // the full cover - use the actual cover <img> on the page instead.
+      coverSelector: "img.object-cover",
+      coverAttr: "src",
       linksSelector: "a[data-chapter-index]",
       // The author name isn't in a plain DOM element on this site - it's
       // embedded in a Next.js RSC data blob as escaped JSON. Best effort
