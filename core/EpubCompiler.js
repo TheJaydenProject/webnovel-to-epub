@@ -50,10 +50,11 @@ img {
 `;
 
 export class EpubCompiler {
-  constructor({ title, author, language = "en" }) {
+  constructor({ title, author, language = "en", sourceUrl = "" }) {
     this.title = title;
     this.author = author || "Unknown";
     this.language = language;
+    this.sourceUrl = sourceUrl;
     this.identifier = `urn:uuid:${crypto.randomUUID()}`;
     this.chapters = [];
     this.images = [];
@@ -145,6 +146,7 @@ export class EpubCompiler {
     <dc:title>${escapeXml(this.title)}</dc:title>
     <dc:language>${this.language}</dc:language>
     <dc:creator>${escapeXml(this.author)}</dc:creator>
+    ${this.sourceUrl ? `<dc:source>${escapeXml(this.sourceUrl)}</dc:source>` : ""}
     <meta property="dcterms:modified">${modified}</meta>${coverMeta}
   </metadata>
   <manifest>

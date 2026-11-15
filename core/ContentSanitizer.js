@@ -16,6 +16,10 @@ function normalizeForMatch(text) {
 // Derives "Chapter N: Subtitle" from a page <title> like
 // "{Novel Title} - Chapter N: Subtitle - {Site Name}".
 export function extractChapterTitle(doc, novelTitle, siteName, config) {
+  if (config?.content?.chapterTitleSelector) {
+    const heading = doc.querySelector(config.content.chapterTitleSelector)?.textContent.trim();
+    if (heading) return heading;
+  }
   const raw = (doc.querySelector("title")?.textContent || "").trim();
 
   // Some sites repeat the novel and chapter titles twice in the <title> tag
@@ -48,7 +52,7 @@ export function extractChapterTitle(doc, novelTitle, siteName, config) {
 // allowed tags/attributes, and rewrites <img> sources to local paths via
 // registerImage(absoluteUrl) -> localFilename. Returns an XHTML fragment
 // string (no wrapping root element).
-export function sanitizeChapterContent(bodyElement, doc, config, baseUrl, registerImage) {
+export function sanitizeChapterContent(bodyElement, doc, config, baseUrl, registerImage, reportImageError = () => {}) {
   for (const selector of config.elementBlacklist || []) {
     bodyElement.querySelectorAll(selector).forEach((el) => el.remove());
   }
@@ -69,7 +73,7 @@ export function sanitizeChapterContent(bodyElement, doc, config, baseUrl, regist
 
   const container = doc.createElement("div");
   for (const child of Array.from(bodyElement.childNodes)) {
-    for (const cleaned of cleanNode(child, doc, baseUrl, registerImage)) {
+    for (const cleaned of cleanNode(child, doc, baseUrl, registerImage, reportImageError)) {
       container.appendChild(cleaned);
     }
   }
@@ -107,7 +111,7 @@ function removeCssHiddenElements(bodyElement, doc) {
   });
 }
 
-function cleanNode(node, doc, baseUrl, registerImage) {
+function cleanNode(node, doc, baseUrl, registerImage, reportImageError) {
   if (node.nodeType === Node.TEXT_NODE) {
     return [doc.createTextNode(node.textContent)];
   }
@@ -118,16 +122,28 @@ function cleanNode(node, doc, baseUrl, registerImage) {
   const tag = node.tagName.toLowerCase();
 
   if (tag === "img") {
-    let src = node.getAttribute("src");
+    // Lazy loaders can leave a transparent placeholder in src until scrolled.
+    const lazySrcset = node.getAttribute("data-srcset")?.split(",")[0]?.trim().split(/\s+/)[0];
+    let src = ["data-src", "data-lazy-src", "data-original"]
+      .map((attr) => node.getAttribute(attr)?.trim()).find(Boolean) || lazySrcset || node.getAttribute("src")?.trim();
     if (!src) {
       // Responsive images with only `srcset` (no plain `src`) would
       // otherwise be dropped entirely - fall back to the first candidate's
       // URL (stripping its trailing width/density descriptor, e.g. "800w").
-      const srcset = node.getAttribute("srcset");
+      const srcset = node.getAttribute("data-srcset") || node.getAttribute("srcset");
       src = srcset?.split(",")[0]?.trim().split(/\s+/)[0];
     }
-    if (!src) return [];
-    const absoluteUrl = new URL(src, baseUrl).href;
+    if (!src) {
+      reportImageError("The page contains an image without a source URL.");
+      return [];
+    }
+    let absoluteUrl;
+    try {
+      absoluteUrl = new URL(src, baseUrl).href;
+    } catch {
+      reportImageError("The page contains an invalid image URL.");
+      return [];
+    }
     const localFilename = registerImage(absoluteUrl);
     const img = doc.createElement("img");
     img.setAttribute("src", `../images/${localFilename}`);
@@ -141,7 +157,7 @@ function cleanNode(node, doc, baseUrl, registerImage) {
   }
 
   const children = Array.from(node.childNodes).flatMap((child) =>
-    cleanNode(child, doc, baseUrl, registerImage)
+    cleanNode(child, doc, baseUrl, registerImage, reportImageError)
   );
 
   if (ALLOWED_TAGS.has(tag)) {

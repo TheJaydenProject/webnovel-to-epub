@@ -15,29 +15,17 @@
     <span class="app-header-version" id="appVersion"></span>
   </header>
 
-  <!-- ── Source ─────────────────────────────────────────────────────── -->
-  <section class="panel" id="setup">
-    <h2 class="section-label">Source</h2>
-
-    <div class="field">
-      <label class="field-label" for="tocUrl">Novel index URL</label>
-      <input id="tocUrl" type="url" placeholder="https://example.com/novel/…">
-    </div>
-
-    <div class="field">
-      <label class="field-label" for="firstChapterUrl">
-        First chapter URL <span class="field-label-opt">(optional)</span>
-      </label>
-      <input id="firstChapterUrl" type="url" placeholder="https://example.com/novel/…/chapter/1">
-      <p class="hint">Fallback discovery via "Next chapter" links, for sites where the index page does not list every chapter.</p>
-    </div>
-
+  <div class="mode-switch" role="group" aria-label="Conversion mode">
+    <button id="singleModeBtn" class="btn" aria-pressed="true">Single novel</button>
+    <button id="batchModeBtn" class="btn" aria-pressed="false">Batch queue</button>
+    <button id="galleryModeBtn" class="btn" aria-pressed="false">Gallery scraping</button>
+  </div>
     <details class="advanced">
       <summary>
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M9 18l6-6-6-6"/>
         </svg>
-        Advanced options
+        Shared fetching settings
       </summary>
       <div class="advanced-body">
         <div class="field">
@@ -60,6 +48,82 @@
         <p class="hint">Loads each page in a real background tab using your logged-in browser session. Required for sites behind Cloudflare or a login wall.</p>
       </div>
     </details>
+  <section id="galleryWorkspace" class="panel" aria-labelledby="galleryHeading" hidden>
+    <h2 id="galleryHeading" class="section-label">Gallery scraping</h2>
+    <p class="hint">Find novels missing from your EPUB library, then queue and download them automatically. Currently supports Dreamy Translations.</p>
+    <div class="field">
+      <label class="field-label" for="galleryUrl">Gallery URL</label>
+      <input id="galleryUrl" type="url" value="https://dreamy-translations.com/series">
+    </div>
+    <div class="field">
+      <label class="field-label" for="galleryFolder">Your EPUB library folder</label>
+      <input id="galleryFolder" type="file" webkitdirectory multiple aria-describedby="galleryFolderHint">
+      <p id="galleryFolderHint" class="hint">Select a folder to scan, including subfolders. Files stay on your PC and are never uploaded. Select the folder again after reopening. New EPUBs go to your browser's configured download folder, not automatically to the selected library folder.</p>
+      <p id="galleryFolderStatus" class="hint" role="status">No folder selected.</p>
+      <label class="toggle-row"><input id="galleryEmptyLibrary" type="checkbox"><span>Start with an empty library (skip folder comparison)</span></label>
+    </div>
+    <label class="toggle-row"><input id="gallerySkipHiatus" type="checkbox" checked><span>Skip novels with (Hiatus) in the title</span></label>
+    <label class="toggle-row"><input id="galleryOnlyFree" type="checkbox" checked><span>Only novels with zero premium chapters</span></label>
+    <label class="toggle-row"><input id="galleryOnlyCompleted" type="checkbox" aria-describedby="galleryCompletedHint"><span>Only completed novels</span></label>
+    <p id="galleryCompletedHint" class="hint">Optional, off by default. Uses Dreamy's Completed gallery filter. Novels without verified completion are skipped. Zero premium chapters alone does not mean a novel is completed.</p>
+    <p class="hint">Unknown premium counts are skipped while this filter is on. Turning it off allows premium novels into the queue but does not unlock paid chapters. Matching uses full EPUB titles, filenames, and saved source URLs; different translations or custom names may not match older EPUBs.</p>
+    <div class="actions">
+      <button id="galleryScanBtn" class="btn btn-primary">Scan &amp; download missing novels</button>
+      <button id="galleryStopBtn" class="btn btn-stop" disabled>Stop scan</button>
+    </div>
+    <p id="galleryStatus" class="hint" role="status" aria-atomic="true">Choose your library folder to begin.</p>
+    <progress id="galleryProgress" aria-label="Gallery scan progress" value="0" max="1"></progress>
+    <details id="galleryReport" class="gallery-report" hidden>
+      <summary>Scan details</summary>
+      <ul id="galleryResults"></ul>
+    </details>
+  </section>
+  <section id="batchWorkspace" class="panel" aria-labelledby="queueHeading" hidden>
+    <h2 id="queueHeading" class="section-label">Novel queue</h2>
+    <p id="queueSummary" class="queue-summary" role="status" aria-atomic="true">No novels queued.</p>
+    <progress id="queueOverallProgress" aria-label="Overall queue progress" value="0" max="1"></progress>
+    <div id="queueActivity" class="queue-activity" hidden>
+      <h3 id="queueActiveTitle"></h3>
+      <p id="queueActiveStep" role="status"></p>
+      <progress id="queueNovelProgress" aria-label="Current novel progress"></progress>
+    </div>
+    <details id="queueInputPanel" class="queue-input" open>
+      <summary>Add novels</summary>
+    <label class="field-label" for="queueUrls">Novel index URLs, one per line</label>
+    <textarea id="queueUrls" rows="5" aria-describedby="queueHint" placeholder="https://example.com/novel/first-book&#10;https://example.com/novel/second-book"></textarea>
+    <p id="queueHint" class="hint">Paste novel index links, then add them to the queue. Each entry has separate Novel name and First chapter URL fields you can fill in before starting. Leave the first chapter blank to use the site's chapter list. Each novel downloads as its own EPUB. Queue entries and reports are saved locally; unfinished novels wait for you to continue after reopening.</p>
+      <div class="actions"><button id="addQueueBtn" class="btn btn-secondary">Add to queue</button></div>
+    </details>
+    <div class="actions queue-actions">
+      <button id="startQueueBtn" class="btn btn-primary" disabled>Start queue</button>
+      <button id="pauseQueueBtn" class="btn btn-secondary" disabled>Pause after this novel</button>
+      <button id="stopQueueBtn" class="btn btn-stop" disabled>Stop current novel</button>
+    </div>
+    <p id="queueInputFeedback" class="hint" role="status"></p>
+    <p id="queueSaveStatus" class="hint" role="alert"></p>
+    <label class="toggle-row"><input id="attentionOnly" type="checkbox"><span>Needs attention only</span></label>
+    <p id="queueFilterEmpty" class="hint" hidden>No novels need attention.</p>
+    <ol id="queueList" class="queue-list"></ol>
+  </section>
+
+  <div id="singleWorkspace">
+  <!-- ── Source ─────────────────────────────────────────────────────── -->
+  <section class="panel" id="setup">
+    <h2 class="section-label">Single novel</h2>
+
+    <div class="field">
+      <label class="field-label" for="tocUrl">Novel index URL</label>
+      <input id="tocUrl" type="url" placeholder="https://example.com/novel/…">
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="firstChapterUrl">
+        First chapter URL <span class="field-label-opt">(optional)</span>
+      </label>
+      <input id="firstChapterUrl" type="url" placeholder="https://example.com/novel/…/chapter/1">
+      <p class="hint">Fallback discovery via "Next chapter" links, for sites where the index page does not list every chapter.</p>
+    </div>
+
 
     <label class="toggle-row">
       <input id="autoCompile" type="checkbox" checked>
@@ -117,6 +181,8 @@
     </div>
   </section>
 
+  </div>
+
   <!-- ── Console ─────────────────────────────────────────────────────── -->
   <section class="panel" id="progressSection">
     <div class="panel-header">
@@ -129,6 +195,16 @@
       </button>
     </div>
     <progress id="progressBar" value="0" max="1"></progress>
+    <div id="compileResult" class="compile-result" hidden>
+      <div role="status" aria-atomic="true">
+        <h3 id="resultTitle"></h3>
+        <p id="resultCounts"></p>
+      </div>
+      <details id="resultDetails" hidden>
+        <summary id="resultIssueCount"></summary>
+        <ul id="resultIssues"></ul>
+      </details>
+    </div>
     <pre id="log"></pre>
   </section>
 

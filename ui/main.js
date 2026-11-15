@@ -4,6 +4,11 @@ import { extractChapterTitle, sanitizeChapterContent } from "../core/ContentSani
 import { findLikelyContentElement } from "../core/ContentDetector.js";
 import { EpubCompiler } from "../core/EpubCompiler.js";
 import * as WuxiaworldApi from "../core/WuxiaworldApi.js";
+import { parseQueueInput, validateNovelUrl } from "../core/QueueInput.js";
+import { queueSnapshot, restoreQueue } from "../core/QueueState.js";
+import { readMistmintPage } from "../core/MistmintHaven.js";
+import { readDreamyPage } from "../core/DreamyPage.js";
+import { validateGalleryUrl, canonicalDreamyNovelUrl, parseDreamyGallery, parseDreamyNovel, gallerySkipReason, scanEpubLibrary } from "../core/Gallery.js";
 
 const els = {
   tocUrl: document.getElementById("tocUrl"),
@@ -30,7 +35,38 @@ const els = {
   stopBtn: document.getElementById("stopBtn"),
   log: document.getElementById("log"),
   appVersion: document.getElementById("appVersion"),
+  compileResult: document.getElementById("compileResult"),
+  resultTitle: document.getElementById("resultTitle"),
+  resultCounts: document.getElementById("resultCounts"),
+  resultDetails: document.getElementById("resultDetails"),
+  resultIssueCount: document.getElementById("resultIssueCount"),
+  resultIssues: document.getElementById("resultIssues"),
+  queueUrls: document.getElementById("queueUrls"),
+  addQueueBtn: document.getElementById("addQueueBtn"),
+  startQueueBtn: document.getElementById("startQueueBtn"),
+  stopQueueBtn: document.getElementById("stopQueueBtn"),
+  queueInputFeedback: document.getElementById("queueInputFeedback"),
+  queueSummary: document.getElementById("queueSummary"),
+  queueList: document.getElementById("queueList"),
+  singleModeBtn: document.getElementById("singleModeBtn"),
+  batchModeBtn: document.getElementById("batchModeBtn"),
+  singleWorkspace: document.getElementById("singleWorkspace"),
+  batchWorkspace: document.getElementById("batchWorkspace"),
+  pauseQueueBtn: document.getElementById("pauseQueueBtn"),
+  queueOverallProgress: document.getElementById("queueOverallProgress"),
+  queueActivity: document.getElementById("queueActivity"),
+  queueActiveTitle: document.getElementById("queueActiveTitle"),
+  queueActiveStep: document.getElementById("queueActiveStep"),
+  queueNovelProgress: document.getElementById("queueNovelProgress"),
+  queueSaveStatus: document.getElementById("queueSaveStatus"),
+  attentionOnly: document.getElementById("attentionOnly"),
+  queueFilterEmpty: document.getElementById("queueFilterEmpty"),
+  queueInputPanel: document.getElementById("queueInputPanel"),
 };
+
+for (const id of ["galleryModeBtn", "galleryWorkspace", "galleryUrl", "galleryFolder", "galleryFolderStatus", "galleryEmptyLibrary", "gallerySkipHiatus", "galleryOnlyFree", "galleryOnlyCompleted", "galleryScanBtn", "galleryStopBtn", "galleryStatus", "galleryProgress", "galleryReport", "galleryResults"]) {
+  els[id] = document.getElementById(id);
+}
 
 els.appVersion.textContent = `v${browser.runtime.getManifest().version}`;
 
@@ -50,10 +86,9 @@ let state = {
   chapters: [],
 };
 
-// In-memory cache of fetched pages/images, keyed by URL - avoids re-fetching
-// content already retrieved earlier in the same session (e.g. after Stop and
-// recompiling with an overlapping chapter range). Cleared on page reload
-// only; never persisted, so it can't serve stale content across sessions.
+// In-memory cache of fetched pages/images, keyed by URL. Single-novel runs
+// reuse fetched content until reload. Queue jobs clear it between novels
+// so a long queue does not retain every book's pages and image blobs.
 const pageCache = new Map(); // url -> html string
 const imageCache = new Map(); // url -> { blob, ext }
 
@@ -85,15 +120,97 @@ const MAX_CHAPTERS = 10000;
 // the compile loop so either can be cut short while keeping whatever was
 // found/compiled so far.
 let cancelRequested = false;
+let operationRunning = false;
+let queueRunning = false;
+let queueStopRequested = false;
+let activeQueueJob = null;
+const novelQueue = [];
+let queueReady = false;
+let saveChain = Promise.resolve();
+const queueStorageKey = `novelQueue:${crypto.randomUUID()}`;
 
-els.stopBtn.addEventListener("click", () => {
-  cancelRequested = true;
-  els.stopBtn.disabled = true;
-  log("Stop requested - finishing up with what's been found so far...");
+function setMode(mode) {
+  if (operationRunning) return;
+  const gallery = mode === "gallery";
+  const batch = mode === true;
+  els.singleWorkspace.hidden = batch || gallery;
+  els.batchWorkspace.hidden = !batch && !gallery;
+  els.galleryWorkspace.hidden = !gallery;
+  els.queueInputPanel.hidden = gallery;
+  els.stopBtn.hidden = batch || gallery;
+  els.singleModeBtn.setAttribute("aria-pressed", String(!batch && !gallery));
+  els.batchModeBtn.setAttribute("aria-pressed", String(batch));
+  els.galleryModeBtn.setAttribute("aria-pressed", String(gallery));
+  els.compileResult.hidden = true;
+}
+els.singleModeBtn.addEventListener("click", () => setMode(false));
+els.batchModeBtn.addEventListener("click", () => setMode(true));
+els.galleryModeBtn.addEventListener("click", () => setMode("gallery"));
+els.attentionOnly.addEventListener("change", filterQueue);
+els.pauseQueueBtn.addEventListener("click", () => {
+  queueStopRequested = true;
+  updateQueueSummary();
+  saveQueue();
 });
+
+function saveQueue() {
+  if (!queueReady) return saveChain;
+  const snapshot = queueSnapshot(novelQueue);
+  // Serialize writes so an older snapshot cannot overwrite a finished report.
+  saveChain = saveChain.then(async () => {
+    await browser.storage.local.set({ [queueStorageKey]: snapshot, latestNovelQueue: queueStorageKey });
+    els.queueSaveStatus.textContent = "";
+  }).catch((err) => {
+    els.queueSaveStatus.textContent = `Could not save the queue: ${err.message}. Keep this tab open to retain these results.`;
+  });
+  return saveChain;
+}
+
+async function initializeQueue() {
+  els.addQueueBtn.disabled = true;
+  try {
+    const pointer = await browser.storage.local.get("latestNovelQueue");
+    const sourceKey = params.get("queue") || pointer.latestNovelQueue;
+    if (typeof sourceKey === "string" && sourceKey.startsWith("novelQueue:")) {
+      const saved = await browser.storage.local.get(sourceKey);
+      if (saved[sourceKey]) {
+        for (const job of restoreQueue(saved[sourceKey])) appendQueueJob(job);
+        queueStopRequested = novelQueue.some((job) => job.status === "paused");
+        els.queueInputPanel.open = novelQueue.length === 0;
+        els.queueInputFeedback.textContent = "Saved queue restored. Unfinished novels are paused and restart from the beginning when continued. A download interrupted at closing may already exist.";
+        if (!params.get("url")) setMode(true);
+      }
+    }
+    // Each dashboard owns its snapshot, including when a saved URL is opened
+    // twice. This prevents two tabs from overwriting each other's reports.
+    queueReady = true;
+    if (novelQueue.length) await saveQueue();
+  } catch (err) {
+    els.queueSaveStatus.textContent = `Could not restore the queue: ${err.message}`;
+  } finally {
+    const url = new URL(location.href);
+    url.searchParams.set("queue", queueStorageKey);
+    history.replaceState(null, "", url.href);
+    queueReady = true;
+    els.addQueueBtn.disabled = false;
+    updateQueueSummary();
+  }
+}
+
+function requestStop() {
+  cancelRequested = true;
+  if (queueRunning) queueStopRequested = true;
+  els.stopBtn.disabled = true;
+  els.stopQueueBtn.disabled = true;
+  log("Stop requested - finishing up with what's been found so far...");
+  if (queueRunning) updateQueueSummary();
+}
+els.stopBtn.addEventListener("click", requestStop);
+els.stopQueueBtn.addEventListener("click", requestStop);
 
 const params = new URLSearchParams(location.search);
 if (params.get("url")) els.tocUrl.value = params.get("url");
+const queueInitialization = initializeQueue();
 
 // Persist the WuxiaWorld API token locally so it doesn't need re-pasting
 // every time (it's only re-entered when it expires, ~30 days).
@@ -193,6 +310,363 @@ els.wuxiaAutoFillBtn.addEventListener("click", async () => {
 function log(message) {
   els.log.textContent += message + "\n";
   els.log.scrollTop = els.log.scrollHeight;
+  if (activeQueueJob) activeQueueJob.ui.progress.textContent = message;
+}
+
+function setBusy(busy) {
+  operationRunning = busy;
+  for (const el of [els.loadBtn, els.compileBtn, els.tocUrl, els.firstChapterUrl,
+    els.wuxiaToken, els.wuxiaAutoFillBtn, els.useTabFetch, els.autoCompile,
+    els.selectAllBtn, els.selectNoneBtn, els.rangeFrom, els.rangeTo, els.applyRangeBtn,
+    els.singleModeBtn, els.batchModeBtn, els.galleryModeBtn, els.galleryUrl,
+    els.galleryFolder, els.galleryEmptyLibrary, els.gallerySkipHiatus, els.galleryOnlyFree, els.galleryOnlyCompleted, els.galleryScanBtn]) {
+    el.disabled = busy;
+  }
+  els.galleryFolder.disabled = busy || els.galleryEmptyLibrary.checked;
+  els.chapterList.querySelectorAll("input[type=checkbox]").forEach((cb) => { cb.disabled = busy; });
+  for (const job of novelQueue) job.ui.retry.disabled = busy || !!job.firstChapterError;
+  updateQueueSummary();
+}
+
+function updateQueueSummary() {
+  const count = (status) => novelQueue.filter((job) => job.status === status).length;
+  const pending = count("waiting") + count("paused");
+  const prefix = queueRunning ? queueStopRequested ? cancelRequested ? "Stopping the current novel, then pausing." : "Pausing after this novel finishes." : "Queue running."
+    : pending ? queueStopRequested ? "Queue paused." : "Ready to start." : novelQueue.length ? "Queue finished." : "No novels queued.";
+  els.queueSummary.textContent = novelQueue.length
+    ? `${prefix} ${count("success")} succeeded, ${count("warning")} with warnings, ${count("failed")} failed, ${count("stopped")} stopped, ${pending} waiting.`
+    : prefix;
+  els.startQueueBtn.disabled = !queueReady || operationRunning || !pending || novelQueue.some(job => ["waiting", "paused"].includes(job.status) && job.firstChapterError);
+  els.galleryScanBtn.disabled = !queueReady || operationRunning;
+  els.startQueueBtn.textContent = queueStopRequested ? "Continue queue" : "Start queue";
+  els.stopQueueBtn.disabled = !queueRunning || cancelRequested;
+  els.pauseQueueBtn.disabled = !queueRunning || queueStopRequested;
+  els.queueOverallProgress.max = Math.max(1, novelQueue.length);
+  els.queueOverallProgress.value = novelQueue.filter((job) => ["success", "warning", "failed", "stopped"].includes(job.status)).length;
+  filterQueue();
+}
+
+function filterQueue() {
+  let visible = 0;
+  for (const job of novelQueue) {
+    job.ui.row.hidden = els.attentionOnly.checked && !["warning", "failed", "stopped", "paused"].includes(job.status);
+    if (!job.ui.row.hidden) visible++;
+  }
+  els.queueFilterEmpty.hidden = !els.attentionOnly.checked || visible > 0;
+}
+
+function updateNovelProgress(step, completed, total) {
+  if (!activeQueueJob) return;
+  els.queueActivity.hidden = false;
+  els.queueActiveTitle.textContent = `Novel ${novelQueue.indexOf(activeQueueJob) + 1} of ${novelQueue.length}: ${activeQueueJob.customTitle || activeQueueJob.title || activeQueueJob.tocUrl}`;
+  els.queueActiveStep.textContent = step;
+  if (total) {
+    els.queueNovelProgress.max = total;
+    els.queueNovelProgress.value = completed;
+  } else {
+    els.queueNovelProgress.removeAttribute("value");
+  }
+}
+
+function renderQueueJob(job) {
+  job.ui.row.dataset.status = job.status;
+  const sourceName = job.tocUrl ? new URL(job.tocUrl).pathname.split("/").filter(Boolean).pop()?.replace(/[-_]/g, " ") || new URL(job.tocUrl).hostname : "Invalid entry";
+  job.ui.title.textContent = `${novelQueue.indexOf(job) + 1}. ${job.customTitle || job.title || sourceName}`;
+  job.ui.name.placeholder = job.title || "Use the name detected from the site";
+  job.ui.name.disabled = ["compiling", "success"].includes(job.status) || !!job.error;
+  job.ui.firstChapter.disabled = ["loading", "compiling", "success"].includes(job.status) || !!job.error;
+  job.ui.firstChapter.setAttribute("aria-invalid", String(!!job.firstChapterError));
+  job.ui.firstChapterError.textContent = job.firstChapterError || "";
+  job.ui.firstChapterError.hidden = !job.firstChapterError;
+  job.ui.url.textContent = job.tocUrl || "";
+  job.ui.status.textContent = {
+    waiting: "Waiting", paused: "Paused", loading: "Discovering", compiling: "Converting",
+    success: "Success", warning: "Warnings", failed: "Failed", stopped: "Stopped",
+  }[job.status];
+  job.ui.counts.textContent = job.report ? reportCounts(job.report) : "";
+  job.ui.progress.hidden = !["waiting", "loading", "compiling"].includes(job.status);
+  job.ui.issues.replaceChildren();
+  const issues = job.report?.issues || (job.error ? [job.error] : []);
+  for (const issue of issues) {
+    const li = document.createElement("li");
+    li.textContent = issue;
+    job.ui.issues.appendChild(li);
+  }
+  job.ui.compactCount.textContent = job.report ? `${job.report.compiled}/${job.report.selected} chapters` : "";
+  job.ui.details.hidden = false;
+  job.ui.summary.textContent = issues.length ? `Details (${issues.length} issues)` : "Details";
+  job.ui.retry.hidden = !["failed", "warning", "stopped"].includes(job.status) || !!job.error;
+  job.ui.retry.disabled = operationRunning || !!job.firstChapterError;
+  updateQueueSummary();
+}
+
+function appendQueueJob(entry) {
+    const job = { ...entry, status: entry.status || (entry.error ? "failed" : "waiting"), report: entry.report || null, ui: {} };
+    for (const [key, tag] of Object.entries({ row: "li", header: "div", title: "h3", nameLabel: "label", name: "input", firstChapterLabel: "label", firstChapter: "input", firstChapterError: "span", compactCount: "span", url: "p", status: "p", progress: "p", counts: "p", details: "details", summary: "summary", issues: "ul", retry: "button" })) {
+      job.ui[key] = document.createElement(tag);
+    }
+    job.ui.row.className = "queue-job";
+    job.ui.header.className = "queue-job-header";
+    job.ui.url.className = "queue-url";
+    job.ui.status.className = "queue-status";
+    job.ui.progress.className = "queue-progress";
+    job.ui.nameLabel.className = "queue-name";
+    job.ui.nameLabel.textContent = "Novel name (optional)";
+    job.ui.name.type = "text";
+    job.ui.name.value = job.customTitle || "";
+    job.ui.nameLabel.appendChild(job.ui.name);
+    job.ui.name.addEventListener("input", () => {
+      if (job.ui.name.disabled) return;
+      job.customTitle = job.ui.name.value.trim();
+      renderQueueJob(job);
+      if (activeQueueJob === job) updateNovelProgress(els.queueActiveStep.textContent);
+      saveQueue();
+    });
+    job.ui.retry.className = "btn btn-secondary";
+    job.ui.firstChapterLabel.className = "queue-name";
+    job.ui.firstChapterLabel.textContent = "First chapter URL (optional)";
+    job.ui.firstChapter.type = "url";
+    job.ui.firstChapter.placeholder = "https://example.com/novel/chapter-1";
+    job.ui.firstChapter.value = job.firstChapterUrl || "";
+    job.ui.firstChapterError.id = `chapter-url-error-${crypto.randomUUID()}`;
+    job.ui.firstChapterError.className = "queue-field-error";
+    job.ui.firstChapterError.setAttribute("aria-live", "polite");
+    job.ui.firstChapter.setAttribute("aria-describedby", job.ui.firstChapterError.id);
+    job.ui.firstChapterLabel.append(job.ui.firstChapter, job.ui.firstChapterError);
+    job.ui.firstChapter.addEventListener("input", () => {
+      if (job.ui.firstChapter.disabled) return;
+      try {
+        const value = job.ui.firstChapter.value.trim();
+        job.firstChapterUrl = value ? validateNovelUrl(value) : "";
+        job.firstChapterError = "";
+        saveQueue();
+      } catch (err) {
+        // Keep the last valid URL in storage, but never run with an invalid draft.
+        job.firstChapterError = err.message;
+      }
+      renderQueueJob(job);
+    });
+    job.ui.retry.textContent = "Queue retry";
+    job.ui.retry.addEventListener("click", () => {
+      if (operationRunning || job.firstChapterError) return;
+      job.status = "waiting";
+      job.ui.progress.textContent = "Queued for another attempt. Previous report retained until it starts.";
+      renderQueueJob(job);
+      saveQueue();
+    });
+    job.ui.header.append(job.ui.title, job.ui.status, job.ui.compactCount);
+    job.ui.details.append(job.ui.summary, job.ui.url, job.ui.counts, job.ui.issues, job.ui.retry);
+    job.ui.row.append(job.ui.header, job.ui.nameLabel, job.ui.firstChapterLabel, job.ui.progress, job.ui.details);
+    novelQueue.push(job);
+    els.queueList.appendChild(job.ui.row);
+    renderQueueJob(job);
+    return job;
+}
+
+els.addQueueBtn.addEventListener("click", () => {
+  if (!queueReady) return;
+  const entries = parseQueueInput(els.queueUrls.value);
+  let added = 0;
+  let duplicates = 0;
+  let invalid = 0;
+  for (const entry of entries) {
+    if (!entry.error && novelQueue.some((job) => job.tocUrl === entry.tocUrl && job.firstChapterUrl === entry.firstChapterUrl)) {
+      duplicates++;
+      continue;
+    }
+    if (entry.error) invalid++;
+    appendQueueJob(entry);
+    added++;
+  }
+  els.queueInputFeedback.textContent = entries.length
+    ? `Added ${added} entry(s). ${duplicates} duplicate(s) skipped.${invalid ? ` ${invalid} invalid entry(s) listed below. Correct those URLs and add them again.` : ""}`
+    : "Paste at least one novel index URL, one per line.";
+  els.queueUrls.value = "";
+  saveQueue();
+});
+
+els.startQueueBtn.addEventListener("click", runQueue);
+
+async function runQueue({ onlyJobs = null } = {}) {
+  if (!queueReady || operationRunning || !novelQueue.some((job) => ["waiting", "paused"].includes(job.status))) return;
+  queueRunning = true;
+  queueStopRequested = false;
+  els.queueInputPanel.open = false;
+  setBusy(true);
+  try {
+    for (const job of novelQueue) {
+      if (queueStopRequested) break;
+      if (onlyJobs && !onlyJobs.includes(job)) continue;
+      if (!["waiting", "paused"].includes(job.status)) continue;
+      activeQueueJob = job;
+      job.report = null;
+      job.status = "loading";
+      cancelRequested = false;
+      job.ui.progress.textContent = "Loading novel details...";
+      renderQueueJob(job);
+      updateNovelProgress("Discovering chapters...");
+      await saveQueue();
+      pageCache.clear();
+      imageCache.clear();
+      els.stopBtn.disabled = false;
+      try {
+        if (job.firstChapterError) throw new Error(`First chapter URL: ${job.firstChapterError}`);
+        await checkGalleryJob(job);
+        if (cancelRequested) throw new Error("Stopped during gallery filter verification. No EPUB was downloaded.");
+        await loadNovel(job.tocUrl, job.firstChapterUrl);
+        job.title = state.novelTitle;
+        state.outputTitle = job.customTitle || state.novelTitle;
+        if (cancelRequested) {
+          job.status = "stopped";
+          job.report = newCompileReport();
+          job.report.issues.push("Stopped during chapter discovery. No EPUB was downloaded. Retry this novel to start it again.");
+        } else {
+          job.status = "compiling";
+          renderQueueJob(job);
+          updateNovelProgress(`Preparing ${state.chapters.length} chapters...`, 0, state.chapters.length);
+          await saveQueue();
+          job.report = await runCompile({ queued: true });
+          job.status = job.report.stopped ? "stopped" : reportOutcome(job.report);
+        }
+      } catch (err) {
+        job.status = cancelRequested ? "stopped" : "failed";
+        job.report = newCompileReport();
+        job.report.issues.push(`Could not load this novel: ${err.message}`);
+        log(job.report.issues.at(-1));
+      }
+      renderQueueJob(job);
+      await saveQueue();
+      activeQueueJob = null;
+    }
+  } finally {
+    activeQueueJob = null;
+    queueRunning = false;
+    els.queueActivity.hidden = true;
+    pageCache.clear();
+    imageCache.clear();
+    els.stopBtn.disabled = true;
+    setBusy(false);
+    await saveQueue();
+  }
+}
+
+async function checkGalleryJob(job) {
+  if (!job.galleryOnlyFree && !job.gallerySkipHiatus && !job.galleryOnlyCompleted) return;
+  if (!canonicalDreamyNovelUrl(job.tocUrl)) throw new Error("Gallery filter checks require a Dreamy novel URL.");
+  if (job.galleryOnlyCompleted) {
+    const completed = await loadCompletedGallery("https://dreamy-translations.com/series");
+    if (!completed.has(canonicalDreamyNovelUrl(job.tocUrl))) throw new Error("Gallery filter: this novel is not verified as completed.");
+  }
+  const doc = new DOMParser().parseFromString(await fetchPage(job.tocUrl), "text/html");
+  const details = parseDreamyNovel(doc, job.tocUrl);
+  if (job.gallerySkipHiatus && /\(\s*hiatus\s*\)/i.test(details.title)) throw new Error("Gallery filter: this novel is now marked (Hiatus).");
+  if (job.galleryOnlyFree && details.premium !== 0) throw new Error(details.premium == null
+    ? "Gallery filter: could not verify zero premium chapters."
+    : `Gallery filter: this novel now has ${details.premium} premium chapters.`);
+}
+
+els.galleryFolder.addEventListener("change", () => {
+  const files = Array.from(els.galleryFolder.files || []);
+  const count = files.filter(file => /\.epub$/i.test(file.name)).length;
+  els.galleryFolderStatus.textContent = files.length ? `${files[0].webkitRelativePath?.split("/")[0] || "Selected folder"}: ${count} EPUB files found.` : "No files selected. For an empty folder, choose Start with an empty library.";
+});
+els.galleryEmptyLibrary.addEventListener("change", () => {
+  els.galleryFolder.disabled = els.galleryEmptyLibrary.checked;
+});
+els.galleryStopBtn.addEventListener("click", () => {
+  cancelRequested = true;
+  els.galleryStopBtn.disabled = true;
+  els.galleryStatus.textContent = "Stopping after the current read. No partial scan will start downloads.";
+});
+els.galleryScanBtn.addEventListener("click", scanGallery);
+
+async function scanGallery() {
+  await queueInitialization;
+  if (operationRunning) return;
+  setBusy(true);
+  cancelRequested = false;
+  els.galleryStopBtn.disabled = false;
+  els.galleryResults.replaceChildren();
+  els.galleryReport.hidden = false;
+  els.galleryProgress.removeAttribute("value");
+  const addedJobs = [];
+  const counts = {};
+  const addResult = (title, status, reason) => {
+    counts[status] = (counts[status] || 0) + 1;
+    const item = document.createElement("li");
+    item.textContent = `${title}: ${reason}`;
+    els.galleryResults.appendChild(item);
+  };
+  try {
+    const url = validateGalleryUrl(els.galleryUrl.value.trim());
+    const files = Array.from(els.galleryFolder.files || []);
+    if (!els.galleryEmptyLibrary.checked && !files.length) throw new Error("Choose your EPUB folder, or select Start with an empty library.");
+    const options = { skipHiatus: els.gallerySkipHiatus.checked, onlyFree: els.galleryOnlyFree.checked, onlyCompleted: els.galleryOnlyCompleted.checked };
+    const library = await scanEpubLibrary(els.galleryEmptyLibrary.checked ? [] : files, {
+      cancelled: () => cancelRequested,
+      onProgress: (done, total, name) => {
+        els.galleryStatus.textContent = `Reading EPUB ${done} of ${total}: ${name}`;
+        els.galleryProgress.max = total;
+        els.galleryProgress.value = done;
+      },
+    });
+    for (const warning of library.warnings) addResult("Library warning", "libraryWarning", warning);
+    if (cancelRequested) return;
+    els.galleryStatus.textContent = "Loading Dreamy's gallery...";
+    pageCache.clear();
+    const gallery = new DOMParser().parseFromString(await fetchViaTab(url), "text/html");
+    const novels = parseDreamyGallery(gallery, url);
+    if (options.onlyCompleted) {
+      els.galleryStatus.textContent = "Checking Dreamy's Completed gallery...";
+      const completed = await loadCompletedGallery(url);
+      for (const novel of novels) novel.completed = completed.has(novel.tocUrl);
+    }
+    const queuedUrls = new Set(novelQueue.map(job => canonicalDreamyNovelUrl(job.tocUrl)).filter(Boolean));
+    const ready = [];
+    els.galleryProgress.max = novels.length;
+    for (const [i, novel] of novels.entries()) {
+      if (cancelRequested) break;
+      els.galleryStatus.textContent = `Checking novel ${i + 1} of ${novels.length}: ${novel.title}`;
+      let skip = gallerySkipReason(novel, library, queuedUrls, { ...options, onlyFree: false });
+      if (!skip) {
+        try {
+          const doc = new DOMParser().parseFromString(await fetchViaTab(novel.tocUrl), "text/html");
+          const details = parseDreamyNovel(doc, novel.tocUrl);
+          Object.assign(novel, details);
+          skip = gallerySkipReason(novel, library, queuedUrls, options);
+          if (!skip && (!details.firstChapterUrl || details.free === 0)) skip = { status: "empty", reason: "Skipped: no available chapters" };
+          if (!skip) {
+            ready.push({ tocUrl: novel.tocUrl, firstChapterUrl: details.premium === 0 ? "" : details.firstChapterUrl,
+              title: novel.title, galleryOnlyFree: options.onlyFree, gallerySkipHiatus: options.skipHiatus, galleryOnlyCompleted: options.onlyCompleted });
+            queuedUrls.add(novel.tocUrl);
+          }
+        } catch (err) {
+          skip = { status: "failed", reason: `Check failed: ${err.message}` };
+        } finally {
+          pageCache.delete(novel.tocUrl);
+        }
+        if (!cancelRequested) await sleep(politeDelay(getConfigForUrl(novel.tocUrl)));
+      }
+      addResult(novel.title, skip?.status || "ready", skip?.reason || "Eligible for download");
+      els.galleryProgress.value = i + 1;
+    }
+    if (cancelRequested) return;
+    for (const entry of ready) addedJobs.push(appendQueueJob(entry));
+    await saveQueue();
+    els.queueInputPanel.open = false;
+    els.galleryStatus.textContent = `Scanned ${library.count} EPUBs and ${novels.length} novels. ${ready.length} queued, ${counts.existing || 0} already in folder, ${counts.queued || 0} already queued, ${counts.hiatus || 0} Hiatus, ${counts.notCompleted || 0} not verified completed, ${counts.premium || 0} premium, ${counts.unknown || 0} unverified, ${counts.failed || 0} failed checks, ${counts.empty || 0} without chapters. ${library.warnings.length} library warnings.${ready.length ? " Starting new downloads below." : " Nothing new to download."}`;
+  } catch (err) {
+    els.galleryStatus.textContent = `Gallery scan failed: ${err.message}`;
+  } finally {
+    if (cancelRequested) els.galleryStatus.textContent = "Scan stopped. No novels from this scan were queued or downloaded. Run the scan again when ready.";
+    pageCache.clear();
+    els.galleryStopBtn.disabled = true;
+    setBusy(false);
+  }
+  if (addedJobs.length) {
+    await runQueue({ onlyJobs: addedJobs });
+    els.galleryStatus.textContent = els.galleryStatus.textContent.replace("Starting new downloads below.", "See the queue below for download results and any paused novels.");
+  }
 }
 
 function sleep(ms) {
@@ -214,12 +688,13 @@ async function fetchImage(url, fetchState) {
   if (imageCache.has(url)) return imageCache.get(url);
   let res;
   try {
-    res = await fetch(url, { credentials: "include" });
-  } catch {
+    res = await fetch(url, { credentials: "include", signal: AbortSignal.timeout(60000) });
+  } catch (err) {
+    if (err.name === "TimeoutError") throw new Error("Image request timed out after 60 seconds");
     // Many image CDNs (S3, Supabase, etc.) send a wildcard
     // `Access-Control-Allow-Origin: *`, which browsers reject outright for
     // credentialed requests - retry without cookies for those.
-    res = await fetch(url);
+    res = await fetch(url, { signal: AbortSignal.timeout(60000) });
   }
   if (res.status === 429 || res.status === 503) bumpThrottle(fetchState, res.status);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -233,7 +708,7 @@ async function fetchImage(url, fetchState) {
 
 async function fetchFast(url) {
   if (pageCache.has(url)) return pageCache.get(url);
-  const res = await fetch(url, { credentials: "include", cache: "no-store" });
+  const res = await fetch(url, { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(60000) });
   if (!res.ok) {
     const err = new Error(`HTTP ${res.status}`);
     err.status = res.status;
@@ -251,7 +726,7 @@ async function fetchFast(url) {
 // a real background tab (a same-site navigation, so the user's normal
 // session cookies apply) and its rendered HTML is read back out.
 async function fetchPage(url) {
-  if (els.useTabFetch.checked) return fetchViaTab(url);
+  if (els.useTabFetch.checked || getConfigForUrl(url).requiresTabFetch) return fetchViaTab(url);
   return fetchFast(url);
 }
 
@@ -263,6 +738,7 @@ function findChapterBody(doc, config) {
   if (config.content.bodySelector) {
     const selected = doc.querySelector(config.content.bodySelector);
     if (selected) return selected;
+    if (config.content.allowContentFallback === false) return null;
     const fallback = findLikelyContentElement(doc);
     if (fallback) log("  Note: configured selector didn't match - using auto-detected content instead.");
     return fallback;
@@ -288,6 +764,7 @@ function looksLocked(html, config) {
 // is set so the rest of this run skips straight to tab-fetching, on the
 // assumption that later chapters are gated too.
 async function fetchChapterPage(url, config, fetchState) {
+  if (config.requiresTabFetch) return fetchViaTab(url);
   if (!els.useTabFetch.checked) return fetchFast(url);
   const tabDelay = config.tabFetchDelay ?? 1000;
   if (fetchState.forceTabFetch) return fetchViaTab(url, tabDelay);
@@ -313,6 +790,7 @@ async function fetchChapterPage(url, config, fetchState) {
   }
 
   log("  This chapter looks locked via normal fetch - retrying with browser tab...");
+  pageCache.delete(url); // The fallback must render the page, not reuse the locked response.
   const tabHtml = await fetchViaTab(url, tabDelay);
   fetchState.forceTabFetch = true;
   log("  Switching remaining chapters to browser-tab fetching.");
@@ -341,8 +819,15 @@ function waitForTabLoad(tabId, timeoutMs = 30000) {
   });
 }
 
-async function fetchViaTab(url, delay = 1000) {
-  if (pageCache.has(url)) return pageCache.get(url);
+async function loadCompletedGallery(url) {
+  const html = await fetchViaTab(url, 1000, true);
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  return new Set(parseDreamyGallery(doc, url, true).map(novel => novel.tocUrl));
+}
+
+async function fetchViaTab(url, delay = 1000, completedOnly = false) {
+  const cacheKey = completedOnly ? `${url}#completed-only` : url;
+  if (pageCache.has(cacheKey)) return pageCache.get(cacheKey);
   const tab = await browser.tabs.create({ url, active: false });
   try {
     await waitForTabLoad(tab.id);
@@ -351,10 +836,13 @@ async function fetchViaTab(url, delay = 1000) {
     await sleep(delay);
     const results = await browser.scripting.executeScript({
       target: { tabId: tab.id },
-      func: () => document.documentElement.outerHTML,
+      args: [completedOnly],
+      func: getConfigForUrl(url).id === "mistminthaven" ? readMistmintPage
+        : getConfigForUrl(url).id === "dreamy-translations" ? readDreamyPage : () => document.documentElement.outerHTML,
     });
+    if (results[0]?.error) throw new Error(results[0].error.message || String(results[0].error));
     const html = results[0]?.result ?? "";
-    pageCache.set(url, html);
+    pageCache.set(cacheKey, html);
     return html;
   } finally {
     await browser.tabs.remove(tab.id).catch(() => {});
@@ -379,44 +867,78 @@ async function autoFillWuxiaToken() {
 }
 
 els.loadBtn.addEventListener("click", async () => {
+  if (operationRunning) return;
   const tocUrl = els.tocUrl.value.trim();
   const firstChapterUrl = els.firstChapterUrl.value.trim();
   if (!tocUrl && !firstChapterUrl) return;
-  const config = getConfigForUrl(firstChapterUrl || tocUrl);
-  if (config.id === "generic" && !firstChapterUrl) {
-    els.log.textContent = "";
-    log(
-      'This site isn\'t specifically supported, and a full index page can\'t be auto-discovered for unlisted sites - fill in "First chapter URL" too, so chapters can be found by following "next chapter" links.'
-    );
-    return;
-  }
-  els.loadBtn.disabled = true;
+  setBusy(true);
+  cancelRequested = false;
+  els.stopBtn.disabled = false;
   try {
-    let wuxiaToken = els.wuxiaToken.value.trim();
-    const novelSlug = tocUrl.match(/\/novel\/([^/?#]+)/)?.[1];
-    if (config.id === "wuxiaworld" && !wuxiaToken && novelSlug) {
-      wuxiaToken = await autoFillWuxiaToken();
-    }
-    if (config.id === "wuxiaworld" && wuxiaToken && novelSlug) {
-      await loadViaWuxiaApi(tocUrl, novelSlug, wuxiaToken, config);
-    } else if (firstChapterUrl && !config.preferTocDiscovery) {
-      await loadViaNextLinkWalk(tocUrl, firstChapterUrl, config);
-    } else {
-      await loadToc(tocUrl, config);
-    }
+    await loadNovel(tocUrl, firstChapterUrl);
     if (els.autoCompile.checked && state.chapters.length > 0 && !cancelRequested) {
-      await runCompile();
+      await runCompile({ queued: true });
     }
   } catch (err) {
     log(`Load failed: ${err.message}`);
   } finally {
-    els.loadBtn.disabled = false;
+    setBusy(false);
+    els.stopBtn.disabled = true;
   }
 });
 
+async function loadNovel(tocUrl, firstChapterUrl) {
+  // Clear old data before validation or network work: failed jobs cannot reuse it.
+  state = { config: null, novelTitle: "", author: "", coverUrl: null, chapters: [] };
+  els.bookInfo.hidden = true;
+  els.chapterSection.hidden = true;
+  els.compileResult.hidden = true;
+  els.log.textContent = "";
+  if (tocUrl) tocUrl = validateNovelUrl(tocUrl);
+  if (firstChapterUrl) firstChapterUrl = validateNovelUrl(firstChapterUrl);
+  const config = getConfigForUrl(firstChapterUrl || tocUrl);
+  if (config.id === "mistminthaven") {
+    const index = new URL(tocUrl || firstChapterUrl);
+    if (!config.hostnamePattern.test(index.hostname)) throw new Error("The Mistmint Haven chapter and novel URLs must be on the same site.");
+    const novelPath = index.pathname.match(/^\/novels\/[^/]+/);
+    if (!novelPath) throw new Error("Use a Mistmint Haven novel URL under /novels/novel-name.");
+    index.pathname = novelPath[0];
+    index.search = "";
+    index.hash = "";
+    tocUrl = index.href;
+    log("Mistmint Haven requires browser rendering. Loading its Free and Premium chapter lists in a background tab.");
+  }
+  if (config.id === "generic" && !firstChapterUrl) {
+    throw new Error('This site needs a first chapter URL. Fill in the "First chapter URL" field for this novel, then retry.');
+  }
+  let wuxiaToken = els.wuxiaToken.value.trim();
+  const novelSlug = tocUrl.match(/\/novel\/([^/?#]+)/)?.[1];
+  if (config.id === "wuxiaworld" && !wuxiaToken && novelSlug) wuxiaToken = await autoFillWuxiaToken();
+  if (cancelRequested) return;
+  if (config.id === "wuxiaworld" && wuxiaToken && novelSlug) {
+    await loadViaWuxiaApi(tocUrl, novelSlug, wuxiaToken, config);
+  } else if (firstChapterUrl && !config.preferTocDiscovery) {
+    await loadViaNextLinkWalk(tocUrl, firstChapterUrl, config);
+  } else {
+    if (config.toc.firstChapterSelector) {
+      const html = await fetchPage(tocUrl);
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const first = Array.from(doc.querySelectorAll(config.toc.firstChapterSelector))
+        .find((a) => config.toc.firstChapterTextMatch.test(a.textContent));
+      if (!first?.getAttribute("href")) throw new Error('Could not find the first chapter. Fill in the "First chapter URL" field for this novel, then retry.');
+      await loadViaNextLinkWalk(tocUrl, new URL(first.getAttribute("href"), tocUrl).href, config);
+    } else {
+      await loadToc(tocUrl, config);
+    }
+  }
+  if (!cancelRequested && !state.chapters.length) {
+    throw new Error("No accessible chapters found. Check the index URL and login, or provide a first chapter URL for next-link discovery.");
+  }
+  state.sourceUrl = tocUrl;
+}
+
 async function loadToc(url, config) {
   els.log.textContent = "";
-  cancelRequested = false;
 
   const html = await fetchPage(url);
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -473,6 +995,7 @@ async function loadViaWuxiaApi(tocUrl, novelSlug, token, config) {
   let novelTitle = "Untitled";
   let author = "Unknown";
   let coverUrl = null;
+  const discoveryIssues = [];
 
   try {
     const html = await fetchPage(tocUrl);
@@ -497,11 +1020,11 @@ async function loadViaWuxiaApi(tocUrl, novelSlug, token, config) {
     }
   } catch (err) {
     log(`Warning: could not load index URL for book details (${err.message}).`);
+    discoveryIssues.push(`Could not load title, author, or cover details from ${tocUrl}: ${err.message}`);
   }
 
   els.log.textContent = "";
   els.progressBar.removeAttribute("value");
-  cancelRequested = false;
   els.stopBtn.disabled = false;
 
   log("Fetching novel info from WuxiaWorld API...");
@@ -523,7 +1046,7 @@ async function loadViaWuxiaApi(tocUrl, novelSlug, token, config) {
   els.stopBtn.disabled = true;
   log(`Found ${chapters.length} accessible chapter(s) out of ${allChapters.length} total.`);
 
-  state = { config, novelTitle, author, coverUrl, chapters, novelSlug, apiToken: token };
+  state = { config, novelTitle, author, coverUrl, chapters, novelSlug, apiToken: token, discoveryIssues };
   populateBookUi();
 }
 
@@ -550,6 +1073,7 @@ function populateBookUi() {
   // locked chapters but keep their original chapterNumber as `index`), so
   // the highest chapter number isn't always the same as the chapter count.
   els.rangeTo.value = chapters.length ? Math.max(...chapters.map((c) => c.index)) : 0;
+  if (operationRunning) setBusy(true);
 }
 
 // Fallback chapter discovery for sites with a broken/missing TOC: starting
@@ -561,6 +1085,7 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
   let novelTitle = "Untitled";
   let author = "Unknown";
   let coverUrl = null;
+  const discoveryIssues = [];
 
   if (tocUrl) {
     try {
@@ -588,12 +1113,12 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
       }
     } catch (err) {
       log(`Warning: could not load index URL for book details (${err.message}).`);
+      discoveryIssues.push(`Could not load title, author, or cover details from ${tocUrl}: ${err.message}`);
     }
   }
 
   els.log.textContent = "";
   els.progressBar.removeAttribute("value"); // indeterminate while discovering
-  cancelRequested = false;
   els.stopBtn.disabled = false;
 
   if (config.id === "generic") {
@@ -609,6 +1134,7 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
   while (nextUrl && !seen.has(nextUrl) && !cancelRequested && chapters.length < MAX_CHAPTERS) {
     seen.add(nextUrl);
     log(`Discovering chapter ${index}: ${nextUrl}`);
+    updateNovelProgress(`Discovering chapters: ${chapters.length} found...`);
 
     let html;
     try {
@@ -616,6 +1142,8 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
     } catch (err) {
       if (chapters.length === 0) throw err;
       log(`  Stopping discovery: ${err.message}`);
+      discoveryIssues.push(`Chapter discovery stopped at ${nextUrl}: ${err.message}. Later chapters may be missing.`);
+      nextUrl = null;
       break;
     }
 
@@ -634,13 +1162,17 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
   els.progressBar.value = 0;
   els.stopBtn.disabled = true;
 
+  if (nextUrl && !cancelRequested && (seen.has(nextUrl) || chapters.length >= MAX_CHAPTERS)) {
+    discoveryIssues.push(`Discovery stopped at a repeated chapter link or the ${MAX_CHAPTERS}-chapter limit. Later chapters may be missing: ${nextUrl}`);
+  }
   if (cancelRequested) {
     log(`Stopped by user - discovered ${chapters.length} chapter(s) so far.`);
+    discoveryIssues.push("Chapter discovery was stopped. Only chapters found before stopping are available.");
   } else {
     log(`Discovered ${chapters.length} chapter(s).`);
   }
 
-  state = { config, novelTitle, author, coverUrl, chapters };
+  state = { config, novelTitle, author, coverUrl, chapters, discoveryIssues };
   populateBookUi();
 }
 
@@ -746,22 +1278,64 @@ els.applyRangeBtn.addEventListener("click", () => {
 
 els.compileBtn.addEventListener("click", runCompile);
 
-async function runCompile() {
-  els.compileBtn.disabled = true;
+async function runCompile({ queued = false } = {}) {
+  if (operationRunning && !queued) return;
+  setBusy(true);
+  els.compileResult.hidden = true;
   els.log.textContent = "";
-  cancelRequested = false;
+  if (!queued) cancelRequested = false;
   els.stopBtn.disabled = false;
+  const report = newCompileReport();
   try {
-    await compile();
+    await compile(report);
   } catch (err) {
     log(`Fatal error: ${err.message}`);
+    report.issues.push(`EPUB could not be completed: ${err.message}`);
   } finally {
-    els.compileBtn.disabled = false;
+    showCompileResult(report);
+    if (!queueRunning) setBusy(false);
     els.stopBtn.disabled = true;
   }
+  return report;
 }
 
-async function compile() {
+function newCompileReport() {
+  return { selected: 0, compiled: 0, images: 0, savedImages: 0, issues: [...(state.discoveryIssues || [])], stopped: false, downloaded: false };
+}
+
+function reportOutcome(report) {
+  const incomplete = report.stopped || report.compiled < report.selected;
+  return !report.downloaded ? "failed" : incomplete || report.issues.length ? "warning" : "success";
+}
+
+function reportCounts(report) {
+  return `${report.compiled} of ${report.selected} selected chapters included. ${report.savedImages} of ${report.images} chapter images included.${report.filename ? ` File: ${report.filename}` : ""}`;
+}
+
+function showCompileResult(report) {
+  const incomplete = report.stopped || report.compiled < report.selected;
+  els.compileResult.dataset.outcome = reportOutcome(report);
+  els.compileResult.hidden = false;
+  els.resultTitle.textContent = !report.downloaded
+    ? "EPUB not completed"
+    : incomplete ? "Incomplete EPUB downloaded"
+    : report.issues.length ? "EPUB downloaded with warnings"
+    : "EPUB downloaded successfully. No errors detected.";
+  els.resultCounts.textContent = reportCounts(report);
+  els.resultIssues.replaceChildren();
+  for (const issue of report.issues) {
+    const li = document.createElement("li");
+    li.textContent = issue;
+    els.resultIssues.appendChild(li);
+  }
+  els.resultIssueCount.textContent = `${report.issues.length} issue(s). View details`;
+  els.resultDetails.hidden = report.issues.length === 0;
+  els.resultDetails.open = report.issues.length > 0;
+  log(els.resultTitle.textContent);
+  log(els.resultCounts.textContent);
+}
+
+async function compile(report) {
   const { config, novelTitle, author, coverUrl, chapters } = state;
 
   const selectedIndexes = new Set(
@@ -770,12 +1344,15 @@ async function compile() {
     )
   );
   const selected = chapters.filter((c) => selectedIndexes.has(c.index));
+  report.selected = selected.length;
   if (selected.length === 0) {
     log("No chapters selected.");
+    report.issues.push("No chapters selected. Select at least one chapter and compile again.");
     return;
   }
 
-  const compiler = new EpubCompiler({ title: novelTitle, author });
+  const outputTitle = state.outputTitle || novelTitle;
+  const compiler = new EpubCompiler({ title: outputTitle, author, sourceUrl: state.sourceUrl || "" });
   const fetchState = { forceTabFetch: false, throttleMultiplier: 1 };
 
   if (coverUrl) {
@@ -785,17 +1362,25 @@ async function compile() {
       compiler.setCover(`cover.${ext}`, blob);
     } catch (err) {
       log(`Warning: could not fetch cover image (${err.message}).`);
+      report.issues.push(`Cover image omitted: ${err.message}\n${coverUrl}`);
     }
   }
 
   const imageRegistry = new Map(); // absoluteUrl -> placeholder id
+  const imageChapters = new Map(); // absoluteUrl -> chapter descriptions
+  let currentChapter;
+  let chapterImages;
   let imageCounter = 0;
   function registerImage(absoluteUrl) {
+    chapterImages.add(absoluteUrl);
     if (!imageRegistry.has(absoluteUrl)) {
       imageCounter += 1;
       imageRegistry.set(absoluteUrl, `img${String(imageCounter).padStart(4, "0")}`);
     }
     return imageRegistry.get(absoluteUrl);
+  }
+  function reportImageError(reason) {
+    report.issues.push(`Image omitted from ${currentChapter}: ${reason}`);
   }
 
   els.progressBar.max = selected.length;
@@ -804,10 +1389,14 @@ async function compile() {
   for (const [i, chapter] of selected.entries()) {
     if (cancelRequested) {
       log(`Stopped by user - compiling EPUB with ${compiler.chapters.length} chapter(s) fetched so far.`);
+      report.issues.push(`Stopped before ${selected.length - i} selected chapter(s) could be processed, starting at chapter ${chapter.index}: ${chapter.label}.`);
       break;
     }
 
     log(`[${i + 1}/${selected.length}] Fetching ${chapter.label}`);
+    updateNovelProgress(`Chapter ${i + 1} of ${selected.length}: ${chapter.label}`, i, selected.length);
+    currentChapter = `Chapter ${chapter.index}: ${chapter.label}`;
+    chapterImages = new Set();
     try {
       if (chapter.chapterId !== undefined) {
         // WuxiaWorld API-sourced chapter: the API returns just the chapter's
@@ -816,7 +1405,7 @@ async function compile() {
         const doc = new DOMParser().parseFromString(`<div id="root">${chapterHtml}</div>`, "text/html");
         const body = doc.querySelector("#root");
         const baseUrl = `https://www.wuxiaworld.com/novel/${state.novelSlug}/${chapter.chapterSlug}`;
-        const fragment = sanitizeChapterContent(body, doc, config, baseUrl, registerImage);
+        const fragment = sanitizeChapterContent(body, doc, config, baseUrl, registerImage, reportImageError);
         if (!fragment.trim()) throw new Error("chapter content is empty");
 
         compiler.addChapter(chapter.label, fragment);
@@ -827,7 +1416,7 @@ async function compile() {
         if (!body) throw new Error("content container not found");
 
         const chapterTitle = extractChapterTitle(doc, novelTitle, config.siteName, config) || chapter.label;
-        const fragments = [sanitizeChapterContent(body, doc, config, chapter.href, registerImage)];
+        const fragments = [sanitizeChapterContent(body, doc, config, chapter.href, registerImage, reportImageError)];
 
         if (config.withinChapterPagination) {
           const { pageUrlSuffix } = config.withinChapterPagination;
@@ -835,13 +1424,19 @@ async function compile() {
           let prevSnippet = body.textContent.trim().slice(0, 80);
 
           for (let pageNum = 2; pageNum <= 50; pageNum++) {
+            if (cancelRequested) {
+              report.issues.push(`${currentChapter}: stopped before page ${pageNum}; chapter may be incomplete.`);
+              break;
+            }
             const pageUrl = baseUrl + pageUrlSuffix + pageNum;
             await sleep(politeDelay(config, fetchState));
             let pageHtml;
             try {
               pageHtml = await fetchChapterPage(pageUrl, config, fetchState);
-            } catch {
-              break; // 404 or network error — no more pages
+            } catch (err) {
+              // A missing page is the site's normal end-of-chapter signal.
+              if (err.status !== 404) report.issues.push(`${currentChapter}: page ${pageNum} could not be fetched; chapter may be incomplete. ${err.message}\n${pageUrl}`);
+              break;
             }
             const pageDoc = new DOMParser().parseFromString(pageHtml, "text/html");
             const pageBody = findChapterBody(pageDoc, config);
@@ -849,7 +1444,7 @@ async function compile() {
             const snippet = pageBody.textContent.trim().slice(0, 80);
             if (!snippet || snippet === prevSnippet) break; // empty or redirect loop
             log(`  Fetching page ${pageNum}`);
-            fragments.push(sanitizeChapterContent(pageBody, pageDoc, config, pageUrl, registerImage));
+            fragments.push(sanitizeChapterContent(pageBody, pageDoc, config, pageUrl, registerImage, reportImageError));
             prevSnippet = snippet;
           }
         }
@@ -858,19 +1453,29 @@ async function compile() {
         if (!fragment.trim()) throw new Error("chapter content is empty");
         compiler.addChapter(chapterTitle, fragment);
       }
+      // Only count images belonging to chapters actually included in the EPUB.
+      for (const url of chapterImages) {
+        if (!imageChapters.has(url)) imageChapters.set(url, new Set());
+        imageChapters.get(url).add(currentChapter);
+      }
     } catch (err) {
       log(`  Skipped: ${err.message}`);
+      report.issues.push(`${currentChapter} omitted: ${err.message}${chapter.href ? `\n${chapter.href}` : ""}`);
     }
 
     els.progressBar.value = i + 1;
+    updateNovelProgress(`Processed ${i + 1} of ${selected.length} chapters`, i + 1, selected.length);
 
     if (i < selected.length - 1) {
       await sleep(politeDelay(config, fetchState));
     }
   }
 
+  report.compiled = compiler.chapters.length;
+  report.stopped = cancelRequested;
   if (compiler.chapters.length === 0) {
     log("No chapters were successfully compiled.");
+    report.issues.push("No chapters were successfully compiled, so no EPUB was created.");
     return;
   }
 
@@ -878,12 +1483,13 @@ async function compile() {
   // placeholder paths in each chapter to the real localized filenames.
   // Images that fail to fetch get their <img> tag stripped instead of
   // shipping a broken reference.
+  const imageEntries = Array.from(imageRegistry.entries()).filter(([url]) => imageChapters.has(url));
   log(
-    imageRegistry.size > 0
-      ? `Found ${imageRegistry.size} image(s) to fetch.`
+    imageEntries.length > 0
+      ? `Found ${imageEntries.length} image(s) to fetch.`
       : "No images found in the selected chapters."
   );
-  const imageEntries = Array.from(imageRegistry.entries());
+  report.images = imageEntries.length;
   const resolution = new Map(); // placeholder -> filename | null
   for (const [i, [absoluteUrl, placeholder]] of imageEntries.entries()) {
     if (cancelRequested) {
@@ -892,13 +1498,16 @@ async function compile() {
     }
 
     log(`Fetching image ${absoluteUrl}`);
+    updateNovelProgress(`Image ${i + 1} of ${imageEntries.length}`, i, imageEntries.length);
     try {
       const { blob, ext } = await fetchImage(absoluteUrl, fetchState);
       const filename = `${placeholder}.${ext}`;
       compiler.addImage(filename, blob);
+      report.savedImages += 1;
       resolution.set(placeholder, filename);
     } catch (err) {
       log(`  Warning: could not fetch image (${err.message}).`);
+      report.issues.push(`Image omitted from ${Array.from(imageChapters.get(absoluteUrl)).join("; ")}: ${err.message}\n${absoluteUrl}`);
       resolution.set(placeholder, null);
     }
     if (i < imageEntries.length - 1) {
@@ -909,8 +1518,11 @@ async function compile() {
   // Any image never attempted (e.g. discovery was stopped early) gets its
   // <img> tag stripped, same as a failed fetch, instead of leaving a
   // dangling placeholder reference in the chapter XHTML.
-  for (const placeholder of imageRegistry.values()) {
-    if (!resolution.has(placeholder)) resolution.set(placeholder, null);
+  for (const [absoluteUrl, placeholder] of imageEntries) {
+    if (!resolution.has(placeholder)) {
+      resolution.set(placeholder, null);
+      report.issues.push(`Image omitted from ${Array.from(imageChapters.get(absoluteUrl)).join("; ")}: stopped before download.\n${absoluteUrl}`);
+    }
   }
 
   for (const chapter of compiler.chapters) {
@@ -930,10 +1542,51 @@ async function compile() {
   }
 
   log("Building EPUB...");
+  updateNovelProgress("Building EPUB...");
+  report.stopped = cancelRequested;
+  if (report.stopped && !report.issues.length) report.issues.push("Stop was requested. The EPUB contains the content processed before stopping.");
+  els.stopBtn.disabled = !queueRunning;
   const blob = await compiler.generate();
   const objectUrl = URL.createObjectURL(blob);
-  const filename = `${sanitizeFilename(novelTitle)}.epub`;
+  const filename = `${sanitizeFilename(outputTitle)}.epub`;
 
-  await browser.downloads.download({ url: objectUrl, filename });
+  try {
+    log("Saving EPUB. Waiting for the browser to confirm the download...");
+    updateNovelProgress("Saving EPUB. Waiting for the browser to confirm the download...");
+    await downloadEpub(objectUrl, filename);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+  report.filename = filename;
+  report.downloaded = true;
+  if (cancelRequested && !report.stopped) report.issues.push("Stop was requested while saving this EPUB. The file finished downloading; no further queued novels will start.");
+  report.stopped = cancelRequested;
   log(`Done: ${filename}`);
+}
+
+// A download ID only means the browser accepted the request, not that the file saved.
+async function downloadEpub(url, filename) {
+  let downloadId;
+  let onChanged;
+  const finished = new Promise((resolve, reject) => {
+    const check = (item) => {
+      const state = item.state?.current || item.state;
+      if (state === "complete") resolve();
+      if (state === "interrupted") reject(new Error(`Download interrupted: ${item.error?.current || item.error || "unknown reason"}`));
+    };
+    onChanged = (delta) => { if (delta.id === downloadId) check(delta); };
+    browser.downloads.onChanged.addListener(onChanged);
+    browser.downloads.download({ url, filename }).then(async (id) => {
+      downloadId = id;
+      // Covers a download that finishes before its ID is returned.
+      const [item] = await browser.downloads.search({ id });
+      if (!item) throw new Error("Download could not be found");
+      check(item);
+    }).catch(reject);
+  });
+  try {
+    await finished;
+  } finally {
+    browser.downloads.onChanged.removeListener(onChanged);
+  }
 }

@@ -15,6 +15,90 @@ const DEFAULT_ELEMENT_BLACKLIST = [
 
 export const SITE_CONFIGS = [
   {
+    id: "mistminthaven",
+    hostnamePattern: /(^|\.)mistminthaven\.com$/,
+    preferTocDiscovery: true,
+    requiresTabFetch: true,
+    sampleUrls: {
+      toc: "https://www.mistminthaven.com/novels/an-investor-who-sees-the-future",
+      firstChapter: "https://www.mistminthaven.com/novels/an-investor-who-sees-the-future/chapter-0",
+    },
+    toc: {
+      titleSelector: "h1",
+      coverSelector: 'meta[property="og:image"]',
+      coverAttr: "content",
+      linksSelector: "a[data-epub-chapter]",
+    },
+    content: {
+      bodySelector: "#chapter-content-text",
+      allowContentFallback: false,
+      chapterTitleSelector: "h1",
+    },
+    siteName: "Mistmint Haven",
+    elementBlacklist: [...DEFAULT_ELEMENT_BLACKLIST],
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+  },
+  {
+    id: "noveltl",
+    hostnamePattern: /(^|\.)noveltl\.com$/,
+    sampleUrls: {
+      toc: "https://noveltl.com/series/novelist-running-through-time/",
+      firstChapter: "https://noveltl.com/chapter-1-cause-of-death/",
+    },
+    toc: {
+      titleSelector: "h1.entry-title",
+      coverSelector: "img.ts-post-image",
+      coverAttr: "src",
+      linksSelector: ".eplisterfull li a",
+      chapterIndexFromHrefRegex: /chapter-(\d+(?:\.\d+)?)(?:[/-]|$)/i,
+      authorSourceRegex: /<span class="sername">Author<\/span>\s*<span class="serval">\s*<a\b[^>]*>([^<]*)<\/a>/,
+    },
+    content: {
+      bodySelector: ".epcontent.entry-content",
+      nextLinkSelector: 'a[rel="next"]',
+      nextLinkTextMatch: /^\s*Next\s*$/i,
+      allowContentFallback: false,
+    },
+    siteName: "Novel Translations",
+    elementBlacklist: [...DEFAULT_ELEMENT_BLACKLIST],
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+  },
+  {
+    id: "woopread",
+    hostnamePattern: /(^|\.)woopread\.com$/,
+    sampleUrls: {
+      toc: "https://woopread.com/series/prince-rage",
+      firstChapter: "https://woopread.com/series/prince-rage/chapter-0-prologue",
+    },
+    toc: {
+      titleSelector: 'meta[property="og:title"]',
+      titleAttr: "content",
+      coverSelector: 'meta[property="og:image"]',
+      coverAttr: "content",
+      linksSelector: "#chapter-list-container a",
+      // The index initially shows only the latest 12 chapters. Walk from
+      // Read Now instead, including prologues and non-numbered chapters.
+      firstChapterSelector: 'a[href*="/series/"]',
+      firstChapterTextMatch: /^\s*Read Now\s*$/i,
+      authorSourceRegex: /Author(?:<!--\s*-->)?\s*:<\/span>\s*<a\b[^>]*>([^<]*)<\/a>/,
+    },
+    content: {
+      bodySelector: 'div[id^="chapter-"]:not(#chapter-list-container)',
+      nextLinkSelector: 'a[href*="/series/"]',
+      nextLinkTextMatch: /^\s*Next\s*$/i,
+      lockedTextMatch: /^\s*$/,
+      // Never mistake comments or subscription prompts for a missing body.
+      allowContentFallback: false,
+    },
+    siteName: "WoopRead",
+    elementBlacklist: [...DEFAULT_ELEMENT_BLACKLIST, "button", "svg"],
+    tabFetchDelay: 2000,
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+  },
+  {
     id: "wattpad",
     hostnamePattern: /(^|\.)wattpad\.com$/,
     sampleUrls: {
@@ -554,6 +638,7 @@ export const SITE_CONFIGS = [
   {
     id: "dreamy-translations",
     hostnamePattern: /(^|\.)dreamy-translations\.com$/,
+    requiresTabFetch: true,
     // Known-good URLs for this config, kept for manual testing / sanity
     // checks when tweaking selectors here or copying this entry for a
     // new site.
@@ -577,6 +662,7 @@ export const SITE_CONFIGS = [
     },
     content: {
       bodySelector: "article.chapter-content",
+      allowContentFallback: false,
       // Used for "first chapter URL" fallback discovery: candidate links
       // are matched against this selector, then the one whose text starts
       // with "Next" is followed to find the next chapter.

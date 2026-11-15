@@ -176,6 +176,7 @@ async function callApi(serviceMethod, body, token) {
     },
     body: grpcFrame(body),
     cache: "no-store",
+    signal: AbortSignal.timeout(60000),
   });
   if (!res.ok) throw new Error(`WuxiaWorld API HTTP ${res.status}`);
   const top = parseGrpcResponse(await res.arrayBuffer());
