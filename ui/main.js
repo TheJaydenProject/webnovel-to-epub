@@ -1,3 +1,4 @@
+import "../browser-shim.js";
 import { getConfigForUrl } from "../core/ParserRegistry.js";
 import { extractChapterTitle, sanitizeChapterContent } from "../core/ContentSanitizer.js";
 import { findLikelyContentElement } from "../core/ContentDetector.js";

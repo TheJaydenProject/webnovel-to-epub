@@ -3,7 +3,7 @@
 <h3 align="center">Web Novel to EPUB</h3>
 
 <p align="center">
-  A Firefox extension that turns web novel chapters into a single EPUB file, cover art and all.
+  A browser extension for Firefox and Chrome that turns web novel chapters into a single EPUB file, cover art and all.
   <br/>
   <br/>
   <a href="https://github.com/TheJaydenProject/webnovel-to-epub/issues/new?template=bug_report.md">Report a Bug</a>
@@ -34,29 +34,45 @@ A browser extension for downloading web novels as EPUB files. Give it a TOC page
 
 ### Built With
 
-- [Firefox Extension APIs (Manifest V3)](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions)
+- [WebExtension APIs (Manifest V3)](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions) — one codebase for Firefox and Chrome
 - [JSZip](https://stuk.github.io/jszip/)
 
 ## Getting Started
 
-No build step needed. Load the extension directly into Firefox as a temporary add-on.
+No build step needed. The same folder loads in Firefox and Chrome.
 
 ### Prerequisites
 
-- Firefox (any recent version)
+- Firefox 115+ or Chrome 121+ (any current version of either)
 
 ### Installation
 
-1. Go to `about:debugging` in Firefox
-2. Click **This Firefox**
-3. Click **Load Temporary Add-on...**
-4. Select `manifest.json` from this folder
+**Firefox**
 
-The extension icon will appear in your toolbar.
+1. Go to `about:debugging#/runtime/this-firefox`
+2. Click **Load Temporary Add-on...**
+3. Select `manifest.json` from this folder
+
+**Chrome / Edge / Brave**
+
+1. Go to `chrome://extensions`
+2. Turn on **Developer mode**
+3. Click **Load unpacked** and select this folder
+
+The extension icon will appear in your toolbar. On Chrome the icon may be
+hidden behind the puzzle-piece menu until you pin it.
+
+### How one manifest covers both
+
+`manifest.json` declares the background entry twice — `service_worker` for
+Chromium and `scripts` for Firefox. Each browser reads the key it understands
+and ignores the other. `browser-shim.js` aliases `browser` to `chrome` on
+Chromium, where the promise-based `browser.*` namespace used throughout this
+codebase is not available before Chrome 148.
 
 ## Usage
 
-1. Open the novel's table-of-contents page in Firefox (the series or index page, not a chapter page)
+1. Open the novel's table-of-contents page in your browser (the series or index page, not a chapter page)
 2. Click the extension icon -- the TOC URL fills in automatically
 3. Optionally fill in a **First chapter URL** if the TOC does not list every chapter; the extension will walk "Next chapter" links from there
 4. Click **Load chapters**

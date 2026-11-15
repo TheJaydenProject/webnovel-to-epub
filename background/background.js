@@ -1,3 +1,5 @@
+import "../browser-shim.js";
+
 // The toolbar button opens a new dashboard tab, passing along the current
 // page URL so the user doesn't have to retype it. Each tab runs fully
 // independently, so multiple novels (even from different sites) can be

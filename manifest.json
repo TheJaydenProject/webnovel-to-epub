@@ -12,8 +12,11 @@
   "host_permissions": [
     "<all_urls>"
   ],
+  "minimum_chrome_version": "121",
   "background": {
-    "scripts": ["background/background.js"]
+    "scripts": ["background/background.js"],
+    "service_worker": "background/background.js",
+    "type": "module"
   },
   "action": {
     "default_title": "Web Novel to EPUB",
@@ -38,7 +41,7 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "{8b3fa2e4-c1d5-4a6b-97f8-2c3d4e5f6a7b}",
-      "strict_min_version": "109.0",
+      "strict_min_version": "115.0",
       "data_collection_permissions": {
         "required": ["none"]
       }
