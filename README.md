@@ -175,14 +175,20 @@ The scan reports existing books, queued books, Hiatus titles, premium titles, un
 
 You do not need to wait for a site to be added. Paste the novel's page into **Novel index URL** and click **Load chapters**:
 
-1. The extension looks on that page for a link such as "Start reading", "Read first", or "Chapter 1". It understands these in English, Chinese, Japanese, Korean, Vietnamese, Russian, Spanish, French, and Indonesian.
-2. If you pasted a chapter instead of the novel's page, it starts from that chapter.
-3. It reads each chapter, finds the story text, and follows the "Next" link until the story ends or a "Next" link leads back to a chapter it already has.
+1. If the page lists the chapters with numbers ("Chapter 12", "第12章", "Chương 12") from chapter 1 onward, that list is used directly. This needs half as many requests as walking the chapters one by one.
+2. Otherwise the extension looks for a link such as "Start reading", "Read first", or "Chapter 1". It understands these in English, Chinese, Japanese, Korean, Vietnamese, Russian, Spanish, French, and Indonesian. If you pasted a chapter instead of the novel's page, it starts from that chapter.
+3. It follows each chapter's "Next" link until the story ends or a "Next" link leads back to a chapter it already has.
 4. If it cannot find where the story starts, it says so. Open chapter 1 in your browser, copy its address into **First chapter URL**, and click **Load chapters** again.
+
+It also adapts to each site as it goes:
+
+- **Layout**: after the first chapter it remembers which part of the page held the story, and uses that spot on every later chapter and on your next visit, instead of guessing again (and maybe picking up a long comment section). If that spot ever comes back empty, it looks again and learns the new one.
+- **Titles and author**: it drops the site's own name and search-engine dressing such as "Read ... online for free" from book and chapter titles, and reads the author from the page's author tag when there is one.
+- **Speed**: see [Adaptive pacing](#adaptive-pacing). Each site's pace is learned and saved separately.
 
 To avoid getting your account or IP banned on a site nobody has checked yet, the extension:
 
-- Reads one page about every 2.5 to 4 seconds, about twice as slowly as on supported sites, and only speeds up gradually after many clean pages.
+- Reads one page about every 2 to 3 seconds, a little slower than on supported sites, and only speeds up gradually after many clean pages.
 - Uses your normal browser tab and login, one page at a time, so the site sees an ordinary reader.
 - Pauses on its own when the site says "slow down", stops completely if the site asks for a pause longer than 10 minutes, and never solves or skips CAPTCHAs for you.
 
@@ -198,6 +204,8 @@ Each site gets its own request pace, and the extension learns it as it goes. The
 | Says "slow down" (HTTP 429, or 503 with `Retry-After`) | Doubles the wait, pauses for as long as the site asks (at least 30 s, growing on repeats), then retries the same chapter on its own. The run continues, and the console notes the pause. |
 | Shows a verification check after it had been answering normally | Triples the wait and stops speeding up for the rest of the session. |
 | Asks for a pause longer than 10 minutes | Stops sending requests to that site and keeps what was fetched, rather than risk a ban. |
+
+Waiting only happens between real requests. Chapters already read while discovering the chapter list are compiled from memory with no delay, so a novel found by following "Next" links is not paced twice.
 
 Learned paces are saved locally per site and drift back to the default after 7 days. A site's limit can only be found by exceeding it, and some sites ban on the first breach without a warning. So the extension never probes past its floor: it speeds up slowly and backs off hard. A 503 on the very first request is treated as the site being down, not as a rate limit, so outages fail fast instead of waiting.
 

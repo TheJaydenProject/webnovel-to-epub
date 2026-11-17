@@ -303,7 +303,7 @@ for (const label of ["Start Reading", "Read First Chapter", "Chapter 1", "開始
 }
 for (const label of ["Chapter 10", "Chapter 12: Rain", "Latest chapter"]) assert.doesNotMatch(label, generic.toc.startLinkTextMatch, label);
 for (const label of ["Chương sau", "Дальше →", "Selanjutnya"]) assert.match(label, generic.content.nextLinkTextMatch, label);
-assert.ok(generic.fetchIntervalBase >= 2000, "unlisted sites start at a slow, polite pace");
+assert.ok(generic.fetchIntervalBase >= 1500, "unlisted sites start at a polite pace");
 ctx.genericStartConfig = generic;
 const startPage = (links) => {
   ctx.DOMParser = class { parseFromString() { return { querySelectorAll: (s) => (s === "a" || s === "a[href]" ? links : []) }; } };
@@ -316,4 +316,41 @@ assert.equal(await vm.runInContext("findGenericStart('https://unlisted.example/n
 startPage([link("Home", "/")]);
 await assert.rejects(vm.runInContext("findGenericStart('https://unlisted.example/n', genericStartConfig)", ctx), /Could not find where this novel starts/);
 
-console.log("Compile feedback checks passed (43 scenarios).");
+// Chapters already fetched during discovery are compiled without a polite wait.
+vm.runInContext("pageCache.clear(); pageCache.set('https://ex.com/c/1', '<p>one</p>');", ctx);
+assert.equal(vm.runInContext("isCachedChapter({ href: 'https://ex.com/c/1' })", ctx), true);
+assert.equal(vm.runInContext("isCachedChapter({ href: 'https://ex.com/c/2' })", ctx), false);
+assert.equal(vm.runInContext("isCachedChapter({ chapterId: 5 })", ctx), false, "API chapters always cost a request");
+assert.ok(generic.fetchIntervalBase < 2500 && generic.fetchIntervalBase > realConfigForUrl("https://www.royalroad.com/fiction/1").fetchIntervalBase,
+  "unlisted sites are paced a little slower than supported ones, not twice as slow");
+
+// Unlisted sites with a numbered chapter list on the novel page skip the walk.
+const listDoc = (links) => ({ querySelectorAll: () => links });
+ctx.listConfig = generic;
+const listOf = (links) => { ctx.listTestDoc = listDoc(links); return vm.runInContext("genericChapterList(listTestDoc, 'https://unlisted.example/novel', listConfig)", ctx); };
+const full = listOf([link("Chapter 3: Rain", "/c/3"), link("Chapter 1", "/c/1"), link("Chapter 2", "/c/2"), link("Chapter 1", "/c/1-dup"), link("Home", "/"), link("Chapter 4", "https://other.example/c/4")]);
+assert.deepEqual(Array.from(full, (c) => [c.index, c.href]), [[1, "https://unlisted.example/c/1"], [2, "https://unlisted.example/c/2"], [3, "https://unlisted.example/c/3"]]);
+assert.equal(listOf([link("第1章 開端", "/1.html"), link("第2章", "/2.html"), link("第3章", "/3.html")]).length, 3);
+assert.equal(listOf([link("Chapter 98", "/c/98"), link("Chapter 99", "/c/99"), link("Chapter 100", "/c/100")]), null, "newest-only lists are walked instead");
+assert.equal(listOf([link("Chapter 1", "/c/1"), link("Chapter 2", "/c/2")]), null, "too few to trust");
+
+// The text container found on the first chapter is reused on later ones.
+const el = (tag, id, classes, text = "x".repeat(300)) => ({ tagName: tag, id, classList: classes, textContent: text });
+const story = el("DIV", "", ["entry-content", "post"]);
+ctx.layoutDoc = { querySelectorAll: (sel) => (sel === "div.entry-content.post" ? [story] : []), querySelector: (sel) => (sel === "div.entry-content.post" ? story : null) };
+assert.equal(vm.runInContext("stableSelector(" + JSON.stringify(story) + ", layoutDoc)", ctx), "div.entry-content.post");
+assert.equal(vm.runInContext("stableSelector({ tagName: 'DIV', id: 'post-123456', classList: [] }, layoutDoc)", ctx), null, "generated ids are not learned");
+vm.runInContext("learnedLayouts = { 'unlisted.example': 'div.entry-content.post' };", ctx);
+ctx.layoutConfig = { ...generic, siteName: "unlisted.example" };
+assert.equal(vm.runInContext("findChapterBody(layoutDoc, layoutConfig)", ctx), story);
+
+// Unlisted-site titles lose their search-engine dressing, not real words.
+ctx.tidyConfig = { siteName: "readnovelfull.com" };
+const tidy = (t, novel = "") => { ctx.tidyArgs = [t, novel]; return vm.runInContext("tidyGenericTitle(tidyArgs[0], tidyConfig, tidyArgs[1])", ctx); };
+assert.equal(tidy("Read Becoming a Monster novel online free - ReadNovelFull"), "Becoming a Monster");
+assert.equal(tidy("Read Becoming a Monster Chapter 1 The Merge online for free - ReadNovelFull", "Becoming a Monster"), "Chapter 1 The Merge");
+assert.equal(tidy("Chapter 3 - Rain"), "Chapter 3 - Rain", "a chapter subtitle is not a site name");
+ctx.tidyConfig = { siteName: "novelfull.net", siteLabel: "Novel Full" };
+assert.equal(tidy("Bear School Astartes | Novel Full"), "Bear School Astartes");
+
+console.log("Compile feedback checks passed (56 scenarios).");

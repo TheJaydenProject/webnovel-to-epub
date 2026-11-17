@@ -19,6 +19,7 @@ read.
 | Chapter text and images | Read from the site in your browser, written into the EPUB in memory | Building the book |
 | EPUB file | Your browser's configured download folder | Delivering the finished file |
 | Queue state and settings | `storage.local` on your device | Resuming a queue, remembering options |
+| Per-site reading pace and page layout (site name, delay, where the chapter text sits) | `storage.local` on your device | Reading each site politely and correctly on later visits |
 | Selected library folder | Read-only, in the browser tab you opened | Scanning for existing EPUBs |
 
 Nothing above leaves your device. No copy is sent to the developer or to any

@@ -1468,6 +1468,9 @@ function buildGenericConfig(hostname) {
       coverSelector: 'meta[property="og:image"]',
       coverAttr: "content",
       linksSelector: null,
+      // A numbered chapter link ("Chapter 12", "第12章", "12화"); the number is
+      // in whichever group matched.
+      chapterNumberMatch: /^(?:chapter|chap\.?|ch\.?|episode|ep\.?|chương|глава|capítulo|chapitre|bab)\s*0*(\d+)\b|^第\s*0*(\d+)\s*[章話话回节節]|^0*(\d+)\s*화/i,
       // Where a story starts, in the languages of the sites people ask for.
       startLinkTextMatch: /^\s*(start reading|read (the )?first( chapter)?|first chapter|begin reading|read now|chapter 0*1\b|ch\.?\s*0*1\b|開始閱讀|开始阅读|從頭閱讀|第一章|第0*1章|第0*1話|最初から読む|첫\s*화|1\s*화|đọc từ đầu|chương đầu|chương 0*1\b|начать чтение|читать с начала|глава 1\b|leer desde el (inicio|principio)|capítulo 0*1\b|commencer la lecture|chapitre 0*1\b|baca dari awal|bab 0*1\b)/i,
     },
@@ -1489,8 +1492,8 @@ function buildGenericConfig(hostname) {
     elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
     // Nobody has checked how much an unlisted site tolerates, so start slower
     // than supported sites; adaptive pacing speeds up only after clean pages.
-    fetchIntervalBase: 2500,
-    fetchJitterRange: 1500,
+    fetchIntervalBase: 1800,
+    fetchJitterRange: 1000,
   };
 }
 

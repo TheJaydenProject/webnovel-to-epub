@@ -86,12 +86,20 @@ let state = {
 // reuse fetched content until reload. Queue jobs clear it between novels
 // so a long queue does not retain every book's pages and image blobs.
 const pageCache = new Map(); // url -> html string
+let networkRequests = 0; // pages actually requested from sites, for pacing decisions
 const imageCache = new Map(); // url -> { blob, ext }
 
 // One adaptive pacer per site (per host for unlisted sites and image CDNs),
 // shared by every run in this dashboard and remembered between sessions.
 const limiters = new Map();
 let learnedRates = {};
+// Unlisted sites: where each site keeps its chapter text, learned from the
+// first chapter and reused on later chapters and visits (hostname -> selector).
+let learnedLayouts = {};
+browser.storage.local.get("learnedLayouts").then(({ learnedLayouts: saved }) => {
+  if (saved && typeof saved === "object") learnedLayouts = saved;
+}).catch((err) => console.error("[learnedLayouts]", err));
+
 browser.storage.local.get("rateLimits").then(({ rateLimits }) => {
   if (rateLimits && typeof rateLimits === "object") learnedRates = rateLimits;
 }).catch((err) => console.error("[rateLimits]", err));
@@ -834,6 +842,7 @@ async function fetchWithRetry(url, options, { retryNetworkErrors = true } = {}) 
   for (;;) {
     let res;
     try {
+      networkRequests++;
       res = await fetch(url, { ...options, signal: AbortSignal.timeout(60000) });
     } catch (err) {
       if (err.name === "TimeoutError" || !retryNetworkErrors || attempt >= FETCH_ATTEMPTS) throw err;
@@ -987,11 +996,39 @@ function findChapterBody(doc, config) {
     if (fallback) log("  Note: configured selector didn't match - using auto-detected content instead.");
     return fallback;
   }
+  const learned = config.id === "generic" && learnedLayouts[config.siteName];
+  if (learned) {
+    const element = doc.querySelector(learned);
+    if (element && element.textContent.trim().length >= 200) return element;
+  }
   for (const selector of config.content.bodyCandidates || []) {
     const candidate = doc.querySelector(selector);
-    if (candidate && candidate.textContent.trim().length >= 200) return candidate;
+    if (candidate && candidate.textContent.trim().length >= 200) return remember(candidate);
   }
-  return findLikelyContentElement(doc);
+  return remember(findLikelyContentElement(doc));
+
+  // Keep a unique selector for the element so the next chapters use the same
+  // container instead of re-guessing (and drifting onto, say, a long comment).
+  function remember(element) {
+    if (config.id !== "generic" || !element) return element;
+    const selector = stableSelector(element, doc);
+    if (selector && selector !== learned) {
+      learnedLayouts = { ...learnedLayouts, [config.siteName]: selector };
+      browser.storage.local.set({ learnedLayouts }).catch((err) => console.error("[learnedLayouts]", err));
+    }
+    return element;
+  }
+}
+
+// A selector that matches only this element: its id, or its tag and classes.
+// Generated-looking ids and utility classes change between pages, so skip them.
+function stableSelector(element, doc) {
+  const plain = (name) => /^[A-Za-z][\w-]*$/.test(name) && !/\d{3,}/.test(name);
+  const candidates = [];
+  if (element.id && plain(element.id)) candidates.push(`#${element.id}`);
+  const classes = Array.from(element.classList || []).filter(plain).slice(0, 3);
+  if (classes.length) candidates.push(`${element.tagName.toLowerCase()}.${classes.join(".")}`);
+  return candidates.find((selector) => doc.querySelectorAll(selector).length === 1) || null;
 }
 
 // True if the fetched chapter HTML looks like a paywalled/teaser version
@@ -1144,6 +1181,7 @@ async function waitForUserVerification(tabId, readTab, autoWaitMs = AUTO_CHECK_W
 async function fetchViaTab(url, delay = 1000, completedOnly = false) {
   const cacheKey = completedOnly ? `${url}#completed-only` : url;
   if (pageCache.has(cacheKey)) return pageCache.get(cacheKey);
+  networkRequests++;
   const config = getConfigForUrl(url);
   const siteReader = config.id === "mistminthaven" ? readMistmintPage
     : config.id === "dreamy-translations" ? readDreamyPage : null;
@@ -1264,7 +1302,21 @@ async function loadNovel(tocUrl, firstChapterUrl) {
     state.sourceUrl = tocUrl || firstChapterUrl;
     return;
   }
-  if (config.id === "generic" && !firstChapterUrl) firstChapterUrl = await findGenericStart(tocUrl, config);
+  if (config.id === "generic" && !firstChapterUrl) {
+    const html = await fetchPage(tocUrl);
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const listed = genericChapterList(doc, tocUrl, config);
+    if (listed) {
+      // Reading the list directly skips the walk, halving the requests to the site.
+      log(`Found a list of ${listed.length} chapters on this page.`);
+      const { novelTitle, author, coverUrl } = readBookDetails(html, doc, tocUrl, config);
+      state = { config, novelTitle, author, coverUrl, chapters: listed };
+      populateBookUi();
+      state.sourceUrl = tocUrl;
+      return;
+    }
+    firstChapterUrl = await findGenericStart(tocUrl, config);
+  }
   let wuxiaToken = els.wuxiaToken.value.trim();
   const novelSlug = tocUrl.match(/\/novel\/([^/?#]+)/)?.[1];
   if (config.id === "wuxiaworld" && !wuxiaToken && novelSlug) wuxiaToken = await autoFillWuxiaToken();
@@ -1299,6 +1351,15 @@ function readBookDetails(html, doc, url, config) {
   const titleEl = doc.querySelector(config.toc.titleSelector);
   let novelTitle = (titleEl ? titleEl.getAttribute(config.toc.titleAttr) || titleEl.textContent : "").trim();
   if (config.toc.titleSuffixRegex) novelTitle = novelTitle.replace(config.toc.titleSuffixRegex, "").trim();
+  if (config.id === "generic") {
+    // Unlisted sites append their own name to page titles ("Novel - SiteName");
+    // remember it so book and chapter titles can drop it.
+    const label = doc.querySelector('meta[property="og:site_name"]')?.getAttribute("content")?.trim();
+    if (label) {
+      config.siteLabel = label;
+    }
+    novelTitle = tidyGenericTitle(novelTitle, config);
+  }
 
   const coverSrc = doc.querySelector(config.toc.coverSelector)?.getAttribute(config.toc.coverAttr)?.trim();
   let coverUrl = null;
@@ -1308,8 +1369,31 @@ function readBookDetails(html, doc, url, config) {
     // Malformed cover URL: compile without a cover rather than failing the load.
   }
 
-  const author = config.toc.authorSourceRegex?.exec(html)?.[1]?.trim() || "Unknown";
+  const author = config.toc.authorSourceRegex?.exec(html)?.[1]?.trim()
+    || (config.id === "generic" && doc.querySelector('meta[name="author"], meta[property="book:author"], meta[property="og:novel:author"]')?.getAttribute("content")?.trim())
+    || "Unknown";
   return { novelTitle: novelTitle || "Untitled", author, coverUrl };
+}
+
+// Unlisted sites dress page titles for search engines: "Read {Novel} online
+// for free - SiteName". Strip that dressing; supported sites have their own rules.
+function tidyGenericTitle(title, config, novelTitle = "") {
+  const hostRoot = config.siteName.replace(/^www\./, "").split(".")[0].toLowerCase();
+  const isSite = (token) => {
+    const squashed = token.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return squashed === hostRoot.replace(/[^a-z0-9]/g, "") || (!!config.siteLabel && token.trim() === config.siteLabel);
+  };
+  let t = title.trim();
+  const tail = /\s*[-|–·:]\s*([^-|–·:]+)$/.exec(t);
+  if (tail && isSite(tail[1])) t = t.slice(0, tail.index);
+  t = t.replace(/^\s*read\s+/i, "").replace(/\s+(?:novel\s+)?online(?:\s+for)?\s+free\b.*$/i, "").trim();
+  if (novelTitle && t.startsWith(novelTitle) && t.length > novelTitle.length) t = t.slice(novelTitle.length).replace(/^[\s:–|-]+/, "");
+  return t || title.trim();
+}
+
+function titleFor(doc, novelTitle, config) {
+  const title = extractChapterTitle(doc, novelTitle, config.siteLabel || config.siteName, config);
+  return config.id === "generic" && title ? tidyGenericTitle(title, config, novelTitle) : title;
 }
 
 // Best-effort metadata for API and next-link discovery: a failure is
@@ -1622,7 +1706,7 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
       break;
     }
     previousBodyText = bodyText;
-    const label = extractChapterTitle(doc, novelTitle, config.siteName, config) || `Chapter ${index}`;
+    const label = titleFor(doc, novelTitle, config) || `Chapter ${index}`;
     chapters.push({ index, href: nextUrl, label });
 
     nextUrl = findNextChapterLink(doc, html, nextUrl, config, tocUrl);
@@ -1659,6 +1743,34 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
 // corresponding link element) - for those, nextLinkSourceRegex matches that
 // slug directly out of the raw HTML, and nextLinkUrlPrefix is prepended to
 // build the path before resolving.
+// True when a chapter's page was already fetched (by next-link discovery),
+// so compiling it sends no request to the site.
+function isCachedChapter(chapter) {
+  return !!chapter.href && pageCache.has(chapter.href);
+}
+
+// Unlisted sites: when the novel's page links its chapters with numbers
+// ("Chapter 12", "第12章", "Chương 12"), use them as the chapter list. Only a
+// list that starts at chapter 1 and is nearly complete is trusted; pages that
+// show just the newest chapters are walked from chapter 1 instead.
+function genericChapterList(doc, url, config) {
+  const host = new URL(url).hostname;
+  const byNumber = new Map();
+  for (const a of doc.querySelectorAll("a[href]")) {
+    const text = a.textContent.trim().replace(/\s+/g, " ");
+    const m = config.toc.chapterNumberMatch.exec(text);
+    if (!m) continue;
+    let href;
+    try { href = new URL(a.getAttribute("href"), url); } catch { continue; }
+    if (href.hostname !== host || href.href.split("#")[0] === url.split("#")[0]) continue;
+    const n = Number(m.slice(1).find((g) => g !== undefined));
+    if (!byNumber.has(n)) byNumber.set(n, { index: n, href: href.href.split("#")[0], label: text.slice(0, 120) });
+  }
+  const numbers = [...byNumber.keys()];
+  if (numbers.length < 3 || Math.min(...numbers) > 1 || numbers.length < Math.max(...numbers) * 0.9) return null;
+  return [...byNumber.values()].sort((a, b) => a.index - b.index);
+}
+
 // Unlisted sites: the novel's main page should be enough. Look for a
 // "Start reading" / "Chapter 1" link on it, or, when the user pasted a
 // chapter, start from that chapter.
@@ -1937,6 +2049,8 @@ async function compile(report) {
       report.issues.push(`Stopped before ${selected.length - i} selected chapter(s) could be processed, starting at chapter ${chapter.index}: ${chapter.label}.`);
       break;
     }
+    const cachedBeforeFetch = isCachedChapter(chapter);
+    const requestsBefore = networkRequests;
 
     log(`[${i + 1}/${selected.length}] Fetching ${chapter.label}`);
     updateNovelProgress(`Chapter ${i + 1} of ${selected.length}: ${chapter.label}`, i, selected.length);
@@ -1967,7 +2081,7 @@ async function compile(report) {
         const body = findChapterBody(doc, config);
         if (!body) throw new Error("content container not found");
 
-        const chapterTitle = extractChapterTitle(doc, novelTitle, config.siteName, config) || chapter.label;
+        const chapterTitle = titleFor(doc, novelTitle, config) || chapter.label;
         const fragments = [sanitizeChapterContent(body, doc, config, chapter.href, registerImage, reportImageError)];
 
         if (config.withinChapterPagination) {
@@ -2047,7 +2161,9 @@ async function compile(report) {
     setTabStatus(`${Math.round(((i + 1) / selected.length) * 100)}%${novelNumber}`);
     updateNovelProgress(`Processed ${i + 1} of ${selected.length} chapters`, i + 1, selected.length);
 
-    if (i < selected.length - 1) {
+    // A chapter read during discovery is served from memory; the site saw no
+    // request, so there is nothing to be polite about.
+    if (i < selected.length - 1 && !(cachedBeforeFetch && networkRequests === requestsBefore)) {
       await sleep(politeDelay(config));
     }
   }
