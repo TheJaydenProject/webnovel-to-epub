@@ -26,6 +26,8 @@ function mediaTypeForFilename(filename) {
       return "image/webp";
     case "svg":
       return "image/svg+xml";
+    case "avif":
+      return "image/avif";
     default:
       return "application/octet-stream";
   }
@@ -46,6 +48,18 @@ p {
 }
 img {
   max-width: 100%;
+}
+hr {
+  border: 0;
+  border-top: 1px solid currentColor;
+  margin: 1.5em 30%;
+  opacity: 0.5;
+}
+blockquote {
+  margin: 1em 1.5em;
+}
+blockquote p, li p {
+  text-indent: 0;
 }
 `;
 

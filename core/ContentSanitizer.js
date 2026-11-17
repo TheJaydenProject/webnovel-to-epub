@@ -2,9 +2,13 @@
 // minimal XHTML fragment plus a list of image references to localize.
 // No network access happens here - callers handle fetching.
 
+// Attributes are always stripped, so these only add structure. <hr> carries
+// scene breaks, and blockquote/lists/sub/sup carry letters, system windows,
+// and translator notes that otherwise collapse into run-on text.
 const ALLOWED_TAGS = new Set([
   "p", "h1", "h2", "h3", "h4", "h5", "h6",
-  "b", "i", "em", "strong", "img", "br",
+  "b", "i", "em", "strong", "u", "s", "sub", "sup",
+  "blockquote", "ul", "ol", "li",
 ]);
 
 // Lowercases and strips everything but letters/digits, so text-blacklist
@@ -152,8 +156,8 @@ function cleanNode(node, doc, baseUrl, registerImage, reportImageError) {
     return [img];
   }
 
-  if (tag === "br") {
-    return [doc.createElement("br")];
+  if (tag === "br" || tag === "hr") {
+    return [doc.createElement(tag)];
   }
 
   const children = Array.from(node.childNodes).flatMap((child) =>
