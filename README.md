@@ -72,7 +72,7 @@ A browser extension for downloading web novels as EPUB files. Give it a TOC page
 - Auto-compile is on by default, so there is no need to click Compile after chapters finish loading
 - A Stop button lets you bail out early and still get an EPUB with whatever was fetched
 
-33 sites have dedicated support, and any other site gets best-effort auto-detection of chapter text and "Next chapter" links. More sites are added on request.
+60 sites have dedicated support. Any other novel site works too: paste the novel's page and the extension finds chapter 1, the text, and the "Next" links by itself, at a slower and safer pace. More sites are added on request.
 
 ### Built With
 
@@ -114,10 +114,10 @@ codebase is not available before Chrome 148.
 
 ## Usage
 
-1. Open the novel's table-of-contents page in your browser (the series or index page, not a chapter page)
-2. Click the extension icon. The dashboard opens with the TOC URL already filled in
-3. Optionally fill in a **First chapter URL** if the TOC does not list every chapter; the extension will walk "Next chapter" links from there
-4. Click **Load chapters**
+1. Open the novel's main page in your browser (the page that shows its title and chapter list)
+2. Click the extension icon. The dashboard opens with that address already filled in
+3. Click **Load chapters**. The **First chapter URL** field is only needed if loading stops early or cannot find chapter 1
+4. Wait for the chapter list to appear
 5. Use **Select all / Select none**, the **From / To** range, or the search box to pick what you want. While searching, the bulk buttons act only on the matching chapters. Shift-click a chapter to select everything between it and the last one you clicked.
 6. Click **Compile EPUB** (or let auto-compile handle it)
 
@@ -166,10 +166,27 @@ The scan reports existing books, queued books, Hiatus titles, premium titles, un
 - **Flaky connections**: network errors and server errors (5xx) are retried twice with short waits before a chapter is reported as failed.
 - **Patreon**: paste a collection URL (`patreon.com/collection/...`), which becomes one book in reading order, or a creator's page for every post they made. Sign in to Patreon in the same browser and keep "Use browser tab for fetching" on; posts your membership unlocks are included, and the rest are left out and counted in the report.
 - **WuxiaWorld without signing in**: the full chapter list still loads. Free chapters are included and locked ones are reported, instead of saving their preview text.
-- **Unlisted sites**: next-chapter detection understands Korean, Chinese, Japanese, and common European "next" labels plus icon-only next buttons, and stops when a "next" link serves the same chapter again.
-- **Sites with incomplete TOC pages**: fill in the First chapter URL and the extension follows "Next chapter" links through the whole series.
+- **Dreamy Translations notes**: translator's notes are kept and added as a numbered list at the end of each chapter, so the [1], [2] markers in the text have something to point to.
+- **Sites with incomplete chapter lists**: fill in the First chapter URL and the extension follows "Next chapter" links through the whole series.
 - **WuxiaWorld**: keep a wuxiaworld.com tab open while logged in and the extension fills your API token for you.
 - **Stopping early**: click Stop at any point. You still get an EPUB from whatever chapters were fetched.
+
+### Sites not on the list
+
+You do not need to wait for a site to be added. Paste the novel's page into **Novel index URL** and click **Load chapters**:
+
+1. The extension looks on that page for a link such as "Start reading", "Read first", or "Chapter 1". It understands these in English, Chinese, Japanese, Korean, Vietnamese, Russian, Spanish, French, and Indonesian.
+2. If you pasted a chapter instead of the novel's page, it starts from that chapter.
+3. It reads each chapter, finds the story text, and follows the "Next" link until the story ends or a "Next" link leads back to a chapter it already has.
+4. If it cannot find where the story starts, it says so. Open chapter 1 in your browser, copy its address into **First chapter URL**, and click **Load chapters** again.
+
+To avoid getting your account or IP banned on a site nobody has checked yet, the extension:
+
+- Reads one page about every 2.5 to 4 seconds, about twice as slowly as on supported sites, and only speeds up gradually after many clean pages.
+- Uses your normal browser tab and login, one page at a time, so the site sees an ordinary reader.
+- Pauses on its own when the site says "slow down", stops completely if the site asks for a pause longer than 10 minutes, and never solves or skips CAPTCHAs for you.
+
+If the text comes out wrong or the run stops early, [request the site](https://github.com/TheJaydenProject/webnovel-to-epub/issues/new?template=site_request.md) so it gets a dedicated config.
 
 ### Adaptive pacing
 
@@ -236,10 +253,10 @@ Each chapter is first requested with a plain `fetch()`. If the page comes back l
 
 ## Supported Sites
 
-Each site below has a dedicated config in `core/ParserRegistry.js`. Dates show the last check against a live novel. Paste the novel's index URL in either mode.
+Each site below has a dedicated config in `core/ParserRegistry.js`. Dates show the last check against a live novel. Paste the novel's page in either mode. Sites marked "checked in Chrome" sit behind Cloudflare; their selectors were checked in a real browser, because the automated test browser is stopped by the human-verification check.
 
 <details>
-<summary>33 supported sites (click to expand)</summary>
+<summary>60 supported sites (click to expand)</summary>
 
 | Site | Last verified | Notes |
 |---|---|---|
@@ -276,10 +293,54 @@ Each site below has a dedicated config in `core/ParserRegistry.js`. Dates show t
 | [ixdzs.tw](https://ixdzs.tw) | 2026-11-17 | |
 | [empirenovel.com](https://www.empirenovel.com) | 2026-11-17 | |
 | [mintteanovel.com](https://mintteanovel.com) | 2026-11-17 | Most chapters need a MintTea account; sign in first |
+| [sabertoothtl.com](https://sabertoothtl.com) | 2026-11-18 | Scheduled chapters are left out |
+| [starlightnovels.club](https://starlightnovels.club) | 2026-11-18 | |
+| [inner-child-reads.com](https://inner-child-reads.com) | 2026-11-18 | Reads every page of the chapter list |
+| [dragontl.net](https://dragontl.net) | 2026-11-18 | |
+| [novgo.net](https://novgo.net) | 2026-11-18 | |
+| [noveljungle.com](https://noveljungle.com) | 2026-11-18 | Coin chapters need an account |
+| [ceavan.com](https://ceavan.com) | 2026-11-18 | |
+| [hangukhub.com](https://hangukhub.com) | 2026-11-18 | |
+| [blume-verse.com](https://blume-verse.com) | 2026-11-18 | |
+| [skynovelvault.com](https://skynovelvault.com) | 2026-11-18 | |
+| [wntl.net](https://wntl.net) | 2026-11-18 | |
+| [deroxzone.com](https://deroxzone.com) | 2026-11-18 | |
+| [valvrareteam.net](https://valvrareteam.net) | 2026-11-18 | Vietnamese |
+| [m.xsw.tw](https://m.xsw.tw) | 2026-11-18 | Chinese; selectors checked in a browser |
+| [uuread.tw](https://www.uuread.tw) | 2026-11-18 | Chinese; joins chapters split over two pages |
+| [bllate.org](https://bllate.org) | 2026-11-18 | Russian |
+| [ladyhotcombtranslations.com](https://ladyhotcombtranslations.com) | 2026-11-18 | Paste the novel's category page (`/category/novels/...`) |
+| [penguin-squad.com](https://penguin-squad.com) | 2026-11-18 | Paid chapters need an account |
+| [fancytl.com](https://fancytl.com) | 2026-11-18 | |
+| [botitranslation.com](https://www.botitranslation.com) | 2026-11-18 | Same platform as FancyTL; checked in Chrome |
+| [theladylovesreading.com](https://theladylovesreading.com) | 2026-11-18 | Paste the book's "Read Now" page (`/series/...`) |
+| [sakuraze.vercel.app](https://sakuraze.vercel.app) | 2026-11-18 | Premium chapters are reported, not saved |
+| [novelfull.com](https://novelfull.com) | 2026-11-18 | |
+| [freewebnovel.com](https://freewebnovel.com) | 2026-11-18 | Checked in Chrome |
+| [easternwordsmith.com](https://easternwordsmith.com) | 2026-11-18 | Free chapters only; checked in Chrome |
+| [xtruyen.vn](https://xtruyen.vn) | 2026-11-18 | Vietnamese; checked in Chrome |
+| [webnovel.com](https://www.webnovel.com) | 2026-11-18 | Free chapters only; paste the book's `/catalog` page; checked in Chrome |
 
 </details>
 
 Chapters that need an account the site has not granted are reported as locked, never saved as empty or preview text. Age or content prompts must be accepted on the site first.
+
+<details>
+<summary>Requested sites that are not supported (click to expand)</summary>
+
+| Site | Why |
+|---|---|
+| comnguoinovel.com | Every chapter needs an account, so the chapter layout could not be checked |
+| fictionzone.net | Chapters are reached only through script buttons, with no links to follow |
+| zenithtls.com | Chapter text arrives scrambled and is rebuilt by script |
+| manta.net | Paid app content |
+| novelpia.jp | Needs an account to read |
+| sammyandpassion.com | Novels are password-protected by the translator |
+| yyuan666.wordpress.com | No chapters on the site; its stories are on Wattpad, which is supported |
+| igames.ink | Shows a "Click Allow" notification trap instead of content |
+| lunarx.to | Offers whole-file uploads, not chapters |
+
+</details>
 
 ## Testing
 

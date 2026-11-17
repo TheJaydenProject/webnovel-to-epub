@@ -28,6 +28,11 @@ export async function readDreamyPage(completedOnly = false) {
     } else {
       const body = document.querySelector("article.chapter-content");
       ready = !!body && (!!body.textContent.trim() || !!body.querySelector("img"));
+      // Note markers ([1], [2]) mean a translator's-notes box follows the
+      // article; give it up to 10 seconds to render so the notes are kept.
+      if (ready && body.querySelector("sup.tl-note") && Date.now() < deadline - 20000) {
+        ready = [...document.querySelectorAll("main div.mt-16 > div.glass")].some(el => /^\s*Translator'?s Notes/i.test(el.textContent));
+      }
     }
     if (ready) return document.documentElement.outerHTML;
     await new Promise(resolve => setTimeout(resolve, 250));

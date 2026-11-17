@@ -49,7 +49,7 @@ const site = createServer((req, res) => {
   const html = (status, body) => res.writeHead(status, { "content-type": "text/html; charset=utf-8" }).end(body);
   switch (url.pathname) {
     case "/novel":
-      return html(200, `<!doctype html><title>${NOVEL}</title><meta property="og:image" content="/img/cover"><h1>${NOVEL}</h1>`);
+      return html(200, `<!doctype html><title>${NOVEL}</title><meta property="og:image" content="/img/cover"><h1>${NOVEL}</h1><a href="/about">About</a><a href="/c/1">Start reading</a>`);
     case "/c/1":
       // Copy-protected reader: text exists only inside a closed shadow root.
       return html(200, page("Chapter 1: Shadow", `<div id="viewer-1"></div>
@@ -128,8 +128,8 @@ try {
     const create = URL.createObjectURL;
     URL.createObjectURL = (blob) => { window.__epub = blob; return create(blob); };
   });
+  // Like a non-technical user: paste only the novel's page of an unlisted site.
   await dashboard.fill("#tocUrl", `${base}/novel`);
-  await dashboard.fill("#firstChapterUrl", `${base}/c/1`);
   assert.equal(await dashboard.isChecked("#useTabFetch"), true, "tab fetching is on by default");
   assert.equal(await dashboard.isChecked("#autoCompile"), true, "auto-compile is on by default");
   await dashboard.click("#loadBtn");
@@ -137,7 +137,10 @@ try {
   await dashboard.waitForFunction(() => {
     const result = document.getElementById("compileResult");
     return !result.hidden && result.dataset.outcome;
-  }, null, { timeout: 150000 });
+  }, null, { timeout: 330000 }).catch(async (err) => {
+    console.log(await dashboard.textContent("#log"));
+    throw err;
+  });
 
   const outcome = await dashboard.evaluate(() => ({
     outcome: document.getElementById("compileResult").dataset.outcome,

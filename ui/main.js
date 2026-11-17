@@ -1264,9 +1264,7 @@ async function loadNovel(tocUrl, firstChapterUrl) {
     state.sourceUrl = tocUrl || firstChapterUrl;
     return;
   }
-  if (config.id === "generic" && !firstChapterUrl) {
-    throw new Error('This site needs a first chapter URL. Fill in the "First chapter URL" field for this novel, then retry.');
-  }
+  if (config.id === "generic" && !firstChapterUrl) firstChapterUrl = await findGenericStart(tocUrl, config);
   let wuxiaToken = els.wuxiaToken.value.trim();
   const novelSlug = tocUrl.match(/\/novel\/([^/?#]+)/)?.[1];
   if (config.id === "wuxiaworld" && !wuxiaToken && novelSlug) wuxiaToken = await autoFillWuxiaToken();
@@ -1275,6 +1273,9 @@ async function loadNovel(tocUrl, firstChapterUrl) {
     await loadViaWuxiaApi(tocUrl, novelSlug, wuxiaToken, config);
   } else if (firstChapterUrl && !config.preferTocDiscovery) {
     await loadViaNextLinkWalk(tocUrl, firstChapterUrl, config);
+  } else if (config.toc.firstChapterSuffix) {
+    // The index lists only recent chapters, but chapter 1 sits at a fixed path under it.
+    await loadViaNextLinkWalk(tocUrl, tocUrl.replace(/\/+$/, "") + config.toc.firstChapterSuffix, config);
   } else {
     if (config.toc.firstChapterSelector) {
       const html = await fetchPage(tocUrl);
@@ -1326,6 +1327,22 @@ async function tryReadBookDetails(tocUrl, config, discoveryIssues) {
 
 // Chapter links from the index page and, for sites whose index is split into
 // pages (`toc.nextPageSelector`), every following page too.
+// Later chapter-list pages are usually plain server-rendered HTML, so read
+// them over plain HTTP and only load a tab when that finds no chapter links.
+// A 50-page list then takes seconds instead of minutes.
+async function fetchListPage(pageUrl, config) {
+  const parse = (html) => new DOMParser().parseFromString(html, "text/html");
+  if (!config.requiresTabFetch) {
+    try {
+      const doc = parse(await fetchFast(pageUrl));
+      if (doc.querySelector(config.toc.linksSelector)) return doc;
+    } catch {
+      // Blocked or failed over plain HTTP: the tab below uses the browser session.
+    }
+  }
+  return parse(await fetchPage(pageUrl));
+}
+
 async function collectTocLinks(doc, url, config) {
   const pageLinks = (pageDoc, pageUrl) => Array.from(pageDoc.querySelectorAll(config.toc.linksSelector), (a) => ({ a, pageUrl }));
   if (!config.toc.nextPageSelector) return pageLinks(doc, url);
@@ -1353,7 +1370,7 @@ async function collectTocLinks(doc, url, config) {
     await sleep(politeDelay(config));
     pageUrl = nextUrl;
     try {
-      pageDoc = new DOMParser().parseFromString(await fetchPage(pageUrl), "text/html");
+      pageDoc = await fetchListPage(pageUrl, config);
     } catch (err) {
       // Keep the chapters already listed rather than failing the whole load.
       log(`Warning: stopped reading the chapter list at ${pageUrl} (${err.message}). Later chapters may be missing.`);
@@ -1363,29 +1380,78 @@ async function collectTocLinks(doc, url, config) {
   return links;
 }
 
+// A chapter-list entry's reading position. DOM order is wrong for lists shown
+// newest first, so the number is read from the link's URL or text when the
+// site config says where it is.
+function tocChapterIndex(a, i, config) {
+  if (a.dataset?.chapterIndex) return Number(a.dataset.chapterIndex);
+  const source = config.toc.chapterIndexFromHrefRegex ? [config.toc.chapterIndexFromHrefRegex, a.getAttribute("href")]
+    : config.toc.chapterIndexFromTextRegex ? [config.toc.chapterIndexFromTextRegex, a.textContent.trim()] : null;
+  const m = source && source[0].exec(source[1]);
+  return m ? Number(m[1]) : i + 1;
+}
+
+// Some indexes show only the newest chapters while every chapter lives at a
+// numbered path under the index, so fill in the numbers the page did not link.
+function fillNumberedChapters(chapters, url, path) {
+  if (!chapters.length) return;
+  const listed = new Set(chapters.map((c) => c.index));
+  const base = url.replace(/\/+$/, "") + path;
+  for (let n = 1; n < Math.max(...listed); n++) {
+    if (!listed.has(n)) chapters.push({ index: n, href: base + n, label: `Chapter ${n}` });
+  }
+}
+
+// Notes a site renders outside the chapter body, such as Dreamy's translator notes.
+function findChapterNotes(doc, config) {
+  if (!config.content.notesSelector) return null;
+  return Array.from(doc.querySelectorAll(config.content.notesSelector))
+    .find((el) => (config.content.notesTextMatch || /^/).test(el.textContent)) || null;
+}
+
+// Rebuilds a notes box as a heading and a numbered list. Sites lay notes out
+// in styled <div>s, which the sanitizer unwraps into one run-on line.
+function notesAsList(notes, doc, config) {
+  const items = config.content.notesItemSelector ? Array.from(notes.querySelectorAll(config.content.notesItemSelector)) : [];
+  if (!items.length) return notes;
+  const box = doc.createElement("div");
+  const heading = doc.createElement("h3");
+  heading.textContent = "Translator's Notes";
+  const list = doc.createElement("ol");
+  for (const item of items) {
+    const li = doc.createElement("li");
+    // The first child is the number badge; the last holds the note's lines.
+    for (const line of Array.from(item.lastElementChild?.children || [])) {
+      const p = doc.createElement("p");
+      p.textContent = line.textContent.trim();
+      if (p.textContent) li.append(p);
+    }
+    if (li.childNodes.length) list.append(li);
+  }
+  box.append(heading, list);
+  return box;
+}
+
+// The link to a chapter's next page, for sites that split one chapter over several pages.
+function findChapterPageLink(doc, pageUrl, config) {
+  if (!config.content.pageLinkTextMatch) return null;
+  const link = Array.from(doc.querySelectorAll(config.content.pageLinkSelector || "a"))
+    .find((a) => config.content.pageLinkTextMatch.test(a.textContent.trim()));
+  return link?.getAttribute("href") ? new URL(link.getAttribute("href"), pageUrl).href : null;
+}
+
 async function loadToc(url, config) {
   const html = await fetchPage(url);
   const doc = new DOMParser().parseFromString(html, "text/html");
   const { novelTitle, author, coverUrl } = readBookDetails(html, doc, url, config);
 
   const linkEls = await collectTocLinks(doc, url, config);
-  const chapters = linkEls.map(({ a, pageUrl }, i) => {
-    let index = i + 1;
-    if (a.dataset.chapterIndex) {
-      index = Number(a.dataset.chapterIndex);
-    } else if (config.toc.chapterIndexFromHrefRegex) {
-      // Falls back to DOM order otherwise, which is wrong for TOCs that
-      // list chapters newest-first - derive the real chapter number from
-      // its URL instead.
-      const m = config.toc.chapterIndexFromHrefRegex.exec(a.getAttribute("href"));
-      if (m) index = Number(m[1]);
-    }
-    return {
-      index,
-      href: new URL(a.getAttribute("href"), pageUrl).href,
-      label: a.textContent.trim() || `Chapter ${i + 1}`,
-    };
-  });
+  const chapters = linkEls.map(({ a, pageUrl }, i) => ({
+    index: tocChapterIndex(a, i, config),
+    href: new URL(a.getAttribute("href"), pageUrl).href,
+    label: a.textContent.trim() || `Chapter ${i + 1}`,
+  }));
+  if (config.toc.numberedChapterPath) fillNumberedChapters(chapters, url, config.toc.numberedChapterPath);
   chapters.sort((a, b) => a.index - b.index);
 
   state = { config, novelTitle, author, coverUrl, chapters };
@@ -1520,7 +1586,7 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
   els.stopBtn.disabled = false;
 
   if (config.id === "generic") {
-    log(`This site isn't specifically supported - using best-effort auto-detection for content and "next chapter" links.`);
+    log(`${config.siteName} is not on the supported list, so the extension finds the text and "Next" links by itself and reads one page every few seconds to stay polite. If it stops early or picks up the wrong text, tell us the site with "Request a Site".`);
   }
 
   const chapters = [];
@@ -1593,6 +1659,30 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
 // corresponding link element) - for those, nextLinkSourceRegex matches that
 // slug directly out of the raw HTML, and nextLinkUrlPrefix is prepended to
 // build the path before resolving.
+// Unlisted sites: the novel's main page should be enough. Look for a
+// "Start reading" / "Chapter 1" link on it, or, when the user pasted a
+// chapter, start from that chapter.
+async function findGenericStart(url, config) {
+  log("Looking for the first chapter on this page...");
+  const html = await fetchPage(url);
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const host = new URL(url).hostname;
+  const start = Array.from(doc.querySelectorAll("a[href]")).find((a) => {
+    if (!config.toc.startLinkTextMatch.test(a.textContent.trim())) return false;
+    try { return new URL(a.getAttribute("href"), url).hostname === host; } catch { return false; }
+  });
+  if (start) {
+    const href = new URL(start.getAttribute("href"), url).href;
+    log(`Found the first chapter: ${href}`);
+    return href;
+  }
+  if (findNextChapterLink(doc, html, url, config, null)) {
+    log("This page looks like a chapter, so reading starts here.");
+    return url;
+  }
+  throw new Error(`Could not find where this novel starts. Open the novel's first chapter in your browser, copy that page's address into "First chapter URL", then press Load chapters again.`);
+}
+
 function findNextChapterLink(doc, html, currentUrl, config, tocUrl) {
   // A "next chapter" link whose path is just the TOC/index page (sometimes
   // with an error query string tacked on) means the site ran out of
@@ -1910,6 +2000,33 @@ async function compile(report) {
             prevSnippet = snippet;
           }
         }
+
+        // Notes some sites render outside the chapter body (Dreamy's translator notes).
+        const notes = findChapterNotes(doc, config);
+        const notesFragment = notes && sanitizeChapterContent(notesAsList(notes, doc, config), doc, config, chapter.href, registerImage, reportImageError);
+
+        // Some sites split one chapter over pages joined by a "next page" link.
+        if (config.content.pageLinkTextMatch) {
+          let pageDoc = doc;
+          let pageUrl = chapter.href;
+          for (let pageNum = 2; pageNum <= 20 && !cancelRequested; pageNum++) {
+            const nextPage = findChapterPageLink(pageDoc, pageUrl, config);
+            if (!nextPage) break;
+            pageUrl = nextPage;
+            await sleep(politeDelay(config));
+            try {
+              pageDoc = new DOMParser().parseFromString(await fetchChapterPage(pageUrl, config, fetchState), "text/html");
+            } catch (err) {
+              report.issues.push(`${currentChapter}: page ${pageNum} could not be fetched; chapter may be incomplete. ${err.message}\n${pageUrl}`);
+              break;
+            }
+            const pageBody = findChapterBody(pageDoc, config);
+            if (!pageBody) break;
+            log(`  Fetching page ${pageNum}`);
+            fragments.push(sanitizeChapterContent(pageBody, pageDoc, config, pageUrl, registerImage, reportImageError));
+          }
+        }
+        if (notesFragment?.trim()) fragments.push(notesFragment);
 
         const fragment = fragments.join("\n");
         if (!fragment.trim()) throw new Error("chapter content is empty");

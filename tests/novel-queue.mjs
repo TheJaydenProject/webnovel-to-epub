@@ -137,10 +137,15 @@ assert.equal(partial.jobs[0].status, "stopped");
 assert.equal(partial.jobs[0].report.downloaded, true);
 assert.equal(partial.jobs[1].status, "waiting");
 
+// An unlisted site whose page has no start link fails with guidance, and the queue moves on.
 const unsupported = await setup();
+unsupported.context.DOMParser = class { parseFromString() { return { querySelectorAll: () => [] }; } };
+vm.runInContext(`fetchPage = async () => "<p>no links</p>";
+  getConfigForUrl = (value) => ({ id: value.includes("unsupported") ? "generic" : "test", siteName: "unsupported.example",
+    toc: { startLinkTextMatch: /^start reading/i }, content: { nextLinkSelector: "a", nextLinkTextMatch: /^next/i } });`, unsupported.context);
 unsupported.add(`https://unsupported.example/novel\n${url(1)}`);
 await unsupported.start();
-assert.match(unsupported.jobs[0].report.issues[0], /first chapter URL/);
+assert.match(unsupported.jobs[0].report.issues[0], /Could not find where this novel starts.*First chapter URL/);
 assert.deepEqual(unsupported.compiled, ["1"]);
 
 const compileFailure = await setup({ onCompile: async (id) => { if (id === "1") throw new Error("ZIP failed"); } });

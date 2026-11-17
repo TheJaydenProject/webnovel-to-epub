@@ -686,6 +686,11 @@ export const SITE_CONFIGS = [
     content: {
       bodySelector: "article.chapter-content",
       allowContentFallback: false,
+      // Translator's notes render in a box after the article; the [1], [2]
+      // markers in the text point to it, so it is appended to the chapter.
+      notesSelector: "main div.mt-16 > div.glass",
+      notesTextMatch: /^\s*Translator'?s Notes/i,
+      notesItemSelector: "div.flex.gap-3",
       // Used for "first chapter URL" fallback discovery: candidate links
       // are matched against this selector, then the one whose text starts
       // with "Next" is followed to find the next chapter.
@@ -1049,7 +1054,379 @@ export const SITE_CONFIGS = [
     fetchIntervalBase: 1000,
     fetchJitterRange: 600,
   },
+  // ── Added 2026-11-18 ──────────────────────────────────────────────────
+  fictioneerConfig("sabertoothtl", /(^|\.)sabertoothtl\.com$/, "SaberToothTL", {
+    toc: "https://sabertoothtl.com/story/logging-out-is-too-hard/",
+    firstChapter: "https://sabertoothtl.com/story/logging-out-is-too-hard/chapter-001/",
+  }, { requiresTabFetch: true }),
+  fictioneerConfig("starlightnovels", /(^|\.)starlightnovels\.club$/, "Starlight Novels", {
+    toc: "https://starlightnovels.club/story/the-moon-that-connects-my-fate-to-you/",
+    firstChapter: "https://starlightnovels.club/story/the-moon-that-connects-my-fate-to-you/chapter-1/",
+  }),
+  siteConfig({
+    id: "innerchildreads",
+    hostnamePattern: /(^|\.)inner-child-reads\.com$/,
+    siteName: "Inner Child Reads",
+    sampleUrls: {
+      toc: "https://inner-child-reads.com/deus-ex-machina/",
+      firstChapter: "https://inner-child-reads.com/deus-ex-machina-chapter-1/",
+    },
+    toc: {
+      linksSelector: "ul.lcp_catlist li a",
+      nextPageSelector: "ul.lcp_paginator a",
+      nextPageTextMatch: /^\s*(»|>|next)/i,
+    },
+    content: { bodySelector: ".stp-protected", nextLinkSelector: 'a[rel="next"]', nextLinkTextMatch: /^/ },
+  }),
+  siteConfig({
+    id: "dragontl",
+    hostnamePattern: /(^|\.)dragontl\.net$/,
+    siteName: "DragonTL",
+    sampleUrls: {
+      toc: "https://dragontl.net/story/into-the-sea/",
+      firstChapter: "https://dragontl.net/into-the-sea/chapter-1-recognizing-the-path/",
+    },
+    // og:image is the site logo, not the novel's cover.
+    toc: { coverSelector: "img.wp-post-image", coverAttr: "src", linksSelector: "ul.mbs_toc_list li a" },
+    content: { bodySelector: ".mbs_posts_text" },
+  }),
+  siteConfig({
+    id: "novgo",
+    hostnamePattern: /(^|\.)novgo\.net$/,
+    siteName: "NOVGO",
+    sampleUrls: {
+      toc: "https://novgo.net/emperors-domination.html",
+      firstChapter: "https://novgo.net/emperors-domination/chapter-1-three-demon-master-1.html",
+    },
+    // The index lists 50 chapters per AJAX page; walking from chapter 1 is simpler.
+    toc: { firstChapterSelector: "a", firstChapterTextMatch: /^\s*Read first/i },
+    content: { bodySelector: "#chapter-content", nextLinkSelector: "a", nextLinkTextMatch: /^\s*Next Chapter/i },
+  }),
+  siteConfig({
+    id: "noveljungle",
+    hostnamePattern: /(^|\.)noveljungle\.com$/,
+    siteName: "NovelJungle",
+    requiresTabFetch: true,
+    sampleUrls: {
+      toc: "https://noveljungle.com/books/2442",
+      firstChapter: "https://noveljungle.com/chapters/39555",
+    },
+    toc: { firstChapterSelector: "a", firstChapterTextMatch: /^\s*Start reading/i },
+    content: { bodySelector: "div.space-y-5", nextLinkSelector: "a", nextLinkTextMatch: /^\s*Next/i },
+  }),
+  siteConfig({
+    id: "ceavan",
+    hostnamePattern: /(^|\.)ceavan\.com$/,
+    siteName: "ceavan",
+    // An Angular app: pages are empty until rendered in a tab.
+    requiresTabFetch: true,
+    preferTocDiscovery: true,
+    sampleUrls: {
+      toc: "https://ceavan.com/class-transfer",
+      firstChapter: "https://ceavan.com/class-transfer/volume-1/chapter-0",
+    },
+    toc: { linksSelector: "ul > li > a.mat-mdc-tooltip-trigger" },
+    content: { bodySelector: "div.content-container" },
+    extraBlacklist: ["h3.path", "app-chapter-nav", "h2.centered-title"],
+  }),
+  siteConfig({
+    id: "hangukhub",
+    hostnamePattern: /(^|\.)hangukhub\.com$/,
+    siteName: "HangukHub",
+    sampleUrls: {
+      toc: "https://hangukhub.com/series/regressing-and-becoming-a-farming-tycoon-in-america",
+      firstChapter: "https://hangukhub.com/series/regressing-and-becoming-a-farming-tycoon-in-america/chapter-1",
+    },
+    toc: { firstChapterSelector: "a", firstChapterTextMatch: /^\s*Read First Chapter/i },
+    content: { bodySelector: ".content-rendered", nextLinkSelector: "a", nextLinkTextMatch: /^\s*Next\s*$/i },
+  }),
+  siteConfig({
+    id: "blumeverse",
+    hostnamePattern: /(^|\.)blume-verse\.com$/,
+    siteName: "BlumeVerse",
+    sampleUrls: {
+      toc: "https://blume-verse.com/series/love-recycling/",
+      firstChapter: "https://blume-verse.com/love-recycling-1/",
+    },
+    // The chapter list is filled in by script; walk from the first chapter.
+    toc: { coverSelector: ".thumb img", coverAttr: "src", firstChapterSelector: ".inepcx a", firstChapterTextMatch: /^\s*First Chapter/i },
+    content: { bodySelector: ".epcontent", nextLinkSelector: 'a[rel="next"]', nextLinkTextMatch: /^/ },
+  }),
+  siteConfig({
+    id: "skynovelvault",
+    hostnamePattern: /(^|\.)skynovelvault\.com$/,
+    siteName: "SkyNovel Vault",
+    sampleUrls: {
+      toc: "https://skynovelvault.com/category/cultivation/the-immortal-map-a-clans-rise/",
+      firstChapter: "https://skynovelvault.com/chapter-1-gu-huan/",
+    },
+    toc: { firstChapterSelector: "a.sn-start-reading", firstChapterTextMatch: /^/ },
+    content: { bodySelector: "#sn-chapter-content", nextLinkSelector: "a.sn-nav-next", nextLinkTextMatch: /^/ },
+  }),
+  siteConfig({
+    id: "wntl",
+    hostnamePattern: /(^|\.)wntl\.net$/,
+    siteName: "WNTL",
+    sampleUrls: {
+      toc: "https://wntl.net/series/icors",
+      firstChapter: "https://wntl.net/read/icors/1",
+    },
+    toc: { firstChapterSelector: "a", firstChapterTextMatch: /^\s*Read First Chapter/i },
+    content: { bodySelector: ".markdown-content", nextLinkSelector: "a", nextLinkTextMatch: /^\s*Next Chapter/i },
+  }),
+  siteConfig({
+    id: "deroxzone",
+    hostnamePattern: /(^|\.)deroxzone\.com$/,
+    siteName: "Derox Zone",
+    sampleUrls: {
+      toc: "https://deroxzone.com/serie/the-artist-who-paints-dungeon",
+      firstChapter: "https://deroxzone.com/serie/the-artist-who-paints-dungeon/chapter-1",
+    },
+    // The index shows only the newest chapters; walk from chapter 1.
+    toc: { firstChapterSuffix: "/chapter-1" },
+    content: { bodySelector: "div.read-novela", nextLinkSelector: "a", nextLinkTextMatch: /^\s*Next\s*$/i },
+  }),
+  siteConfig({
+    id: "valvrareteam",
+    hostnamePattern: /(^|\.)valvrareteam\.net$/,
+    siteName: "Valvrareteam",
+    sampleUrls: {
+      toc: "https://valvrareteam.net/truyen/trong-sinh-tu-tien-doi-thuong-7d592ef8",
+      firstChapter: "https://valvrareteam.net/truyen/trong-sinh-tu-tien-doi-thuong-7d592ef8/chuong/chuong-1-tro-lai-thoi-thieu-nien-7d595450",
+    },
+    // The first <h1> is the site logo; og:title is "{Novel} Vietsub | ...".
+    toc: { titleSelector: 'meta[property="og:title"]', titleAttr: "content", titleSuffixRegex: /\s*(Vietsub)?\s*\|.*$/, firstChapterSelector: "a", firstChapterTextMatch: /^\s*Chương đầu tiên/i },
+    // Previous and next share a class; only "previous" carries this title.
+    content: { bodySelector: ".chapter-content", nextLinkSelector: 'a.chapter-nav-btn:not([title*="trước"])', nextLinkTextMatch: /^/, chapterTitleSourceRegex: /^(.+?)\s+-\s+/ },
+  }),
+  siteConfig({
+    id: "xswtw",
+    hostnamePattern: /(^|\.)xsw\.tw$/,
+    siteName: "台灣小說網",
+    sampleUrls: {
+      toc: "https://m.xsw.tw/1713745/",
+      firstChapter: "https://m.xsw.tw/1713745/250143505.html",
+    },
+    toc: { firstChapterSelector: "a", firstChapterTextMatch: /^\s*開始閱讀/ },
+    content: { bodySelector: "#nr1", nextLinkSelector: "a#pb_next", nextLinkTextMatch: /下一章/ },
+  }),
+  siteConfig({
+    id: "uuread",
+    hostnamePattern: /(^|\.)uuread\.tw$/,
+    siteName: "uu看書",
+    preferTocDiscovery: true,
+    sampleUrls: {
+      toc: "https://www.uuread.tw/1378603",
+      firstChapter: "https://www.uuread.tw/chapter/1378603/56020.html",
+    },
+    toc: { titleSelector: 'meta[property="og:title"]', titleAttr: "content", linksSelector: "ul#newlist li a" },
+    // Each chapter is split over two or more pages joined by "下一頁".
+    content: { bodySelector: "#nr", nextLinkSelector: "a", nextLinkTextMatch: /^\s*下一章/, pageLinkTextMatch: /^下一頁$/, chapterTitleSourceRegex: /^[^_]*_([^_]+)_/ },
+  }),
+  siteConfig({
+    id: "bllate",
+    hostnamePattern: /(^|\.)bllate\.org$/,
+    siteName: "Bllate",
+    sampleUrls: {
+      toc: "https://bllate.org/book/28979",
+      firstChapter: "https://bllate.org/book/28979/3509061/ready_new",
+    },
+    toc: { firstChapterSelector: "a", firstChapterTextMatch: /^\s*Начать чтение/i },
+    content: { bodySelector: ".reader-content", nextLinkSelector: "a.btn", nextLinkTextMatch: /^\s*Дальше/i, chapterTitleSourceRegex: /:\s*([^:]+)$/ },
+    extraBlacklist: ["a.btn", "h1", ".reader-header"],
+  }),
+  siteConfig({
+    id: "ladyhotcomb",
+    hostnamePattern: /(^|\.)ladyhotcombtranslations\.com$/,
+    siteName: "Ladyhotcomb Translations",
+    preferTocDiscovery: true,
+    sampleUrls: {
+      // The novel page shows only the latest ten chapters; its category archive lists them all.
+      toc: "https://ladyhotcombtranslations.com/category/novels/rise-of-the-othergod-apostle-not-a-cult-leader-but-a-serf/",
+      firstChapter: "https://ladyhotcombtranslations.com/novels/rise-of-the-othergod-apostle-not-a-cult-leader-but-a-serf/196-gg/",
+    },
+    toc: {
+      titleSelector: "title",
+      titleSuffixRegex: /\s*-\s*Ladyhotcomb Translations\s*$/i,
+      linksSelector: "article h2 a",
+      nextPageSelector: "a.next.page-numbers",
+      nextPageTextMatch: /^\s*Next/i,
+      // The archive is newest first; the number in the URL gives reading order.
+      chapterIndexFromHrefRegex: /\/(\d+)-[^/]*\/?$/,
+    },
+    content: { bodySelector: ".entry-content", nextLinkSelector: "a", nextLinkTextMatch: /^\s*Next/i },
+  }),
+  siteConfig({
+    id: "penguinsquad",
+    hostnamePattern: /(^|\.)penguin-squad\.com$/,
+    siteName: "Penguin Squad",
+    sampleUrls: {
+      toc: "https://penguin-squad.com/novels/a-space-marine-gets-a-status-window",
+      firstChapter: "https://penguin-squad.com/novels/a-space-marine-gets-a-status-window/prologue",
+    },
+    toc: { firstChapterSelector: "a", firstChapterTextMatch: /^\s*Read\s*$/i },
+    content: { bodySelector: "article", nextLinkSelector: 'a[aria-label^="Next chapter"]', nextLinkTextMatch: /^/ },
+    extraBlacklist: ["header", "div.fixed"],
+  }),
+  fancyPlatformConfig("fancytl", /(^|\.)fancytl\.com$/, "FancyTL", "https://fancytl.com"),
+  // Same platform and book ids as FancyTL, behind Cloudflare.
+  fancyPlatformConfig("botitranslation", /(^|\.)botitranslation\.com$/, "Boti Translation", "https://www.botitranslation.com"),
+  siteConfig({
+    id: "theladylovesreading",
+    hostnamePattern: /(^|\.)theladylovesreading\.com$/,
+    siteName: "The Lady Loves Reading",
+    preferTocDiscovery: true,
+    sampleUrls: {
+      // A book's "Read Now" page is a paged archive of its chapter posts.
+      toc: "https://theladylovesreading.com/series/legend-of-the-female-general-rebirth-of-the-female-general-the-song-of-splendid-moon-%e9%87%8d%e7%94%9f%e4%b9%8b%e5%a5%b3%e5%b0%87%e6%98%9f%ef%bc%88%e9%8c%a6%e6%9c%88%e5%a6%82%e6%ad%8c/",
+    },
+    toc: {
+      titleSelector: "title",
+      titleSuffixRegex: /\s*-\s*The Lady Loves Reading\s*$/i,
+      linksSelector: "h2.entry-title a",
+      nextPageSelector: "a.next.page-numbers",
+      nextPageTextMatch: /^/,
+      chapterIndexFromHrefRegex: /-chapter-(\d+)\/?$/,
+    },
+    content: { bodySelector: ".entry-content" },
+  }),
+  siteConfig({
+    id: "sakuraze",
+    hostnamePattern: /(^|\.)sakuraze\.vercel\.app$/,
+    siteName: "Sakuraze",
+    // A script-rendered reader whose "Next" is a button, not a link.
+    requiresTabFetch: true,
+    preferTocDiscovery: true,
+    sampleUrls: {
+      toc: "https://sakuraze.vercel.app/novel/the-forgotten-field",
+      firstChapter: "https://sakuraze.vercel.app/novel/the-forgotten-field/chapter/1",
+    },
+    toc: {
+      linksSelector: 'a[href*="/chapter/"]',
+      chapterIndexFromHrefRegex: /\/chapter\/(\d+)\/?$/,
+      // The index shows only the newest chapters; every chapter is at /chapter/N.
+      numberedChapterPath: "/chapter/",
+    },
+    // Premium chapters show a preview outside this container, so they are reported, not saved.
+    content: { bodySelector: ".chapter-effects-scope", allowContentFallback: false, chapterTitleSelector: "h1" },
+  }),
+  siteConfig({
+    id: "novelfull",
+    hostnamePattern: /(^|\.)novelfull\.com$/,
+    siteName: "NovelFull",
+    preferTocDiscovery: true,
+    sampleUrls: {
+      toc: "https://novelfull.com/the-mech-touch.html",
+      firstChapter: "https://novelfull.com/the-mech-touch/chapter-1-age-of-mechs.html",
+    },
+    // 50 chapters per index page, oldest first.
+    toc: { titleSelector: "h3.title", coverSelector: ".book img", coverAttr: "src", linksSelector: "#list-chapter ul.list-chapter li a", nextPageSelector: "li.next a", nextPageTextMatch: /^/ },
+    content: { bodySelector: "#chapter-content", nextLinkSelector: "a#next_chap", nextLinkTextMatch: /^/ },
+  }),
+  siteConfig({
+    id: "freewebnovel",
+    hostnamePattern: /(^|\.)freewebnovel\.com$/,
+    siteName: "Free Web Novel",
+    sampleUrls: {
+      toc: "https://freewebnovel.com/novel/the-innkeeper",
+      firstChapter: "https://freewebnovel.com/novel/the-innkeeper/chapter-1",
+    },
+    toc: { firstChapterSelector: "a", firstChapterTextMatch: /^\s*Read first/i },
+    content: { bodySelector: "#article", nextLinkSelector: "a", nextLinkTextMatch: /^\s*Next Chapter/i },
+  }),
+  siteConfig({
+    id: "easternwordsmith",
+    hostnamePattern: /(^|\.)easternwordsmith\.com$/,
+    siteName: "Eastern WordSmith",
+    preferTocDiscovery: true,
+    sampleUrls: {
+      toc: "https://easternwordsmith.com/novel/Jack-of-All-Trades,%20Party%20of%20None",
+      firstChapter: "https://easternwordsmith.com/chapter/10492",
+    },
+    toc: {
+      titleSelector: "title",
+      // Free chapters only; early-access ones are separate lock links. Listed newest first as "C12 : Title".
+      linksSelector: "div.col-7 > a[href*='/chapter/']",
+      chapterIndexFromTextRegex: /^C(\d+)\b/,
+    },
+    content: { bodySelector: "section#CS" },
+  }),
+  siteConfig({
+    id: "xtruyen",
+    hostnamePattern: /(^|\.)xtruyen\.vn$/,
+    siteName: "XTruyện",
+    // The served HTML holds only a short preview; the full text is rendered by script.
+    requiresTabFetch: true,
+    sampleUrls: {
+      toc: "https://xtruyen.vn/truyen/thieu-gia-bi-bo-roi/",
+      firstChapter: "https://xtruyen.vn/truyen/thieu-gia-bi-bo-roi/chuong-1/",
+    },
+    toc: { firstChapterSelector: "a", firstChapterTextMatch: /^\s*Chương đầu/i },
+    content: { bodySelector: ".reading-content .text-left", nextLinkSelector: "a.next_page", nextLinkTextMatch: /^/ },
+  }),
+  siteConfig({
+    id: "webnovel",
+    hostnamePattern: /(^|\.)webnovel\.com$/,
+    siteName: "WebNovel",
+    preferTocDiscovery: true,
+    sampleUrls: {
+      toc: "https://www.webnovel.com/book/slay-demons-and-extract-abilities_37049045308187805/catalog",
+      firstChapter: "https://www.webnovel.com/book/slay-demons-and-extract-abilities_37049045308187805/chapter-1-survival_99727107348816631",
+    },
+    // Paid chapters carry a lock icon and are left out, so previews are never saved as chapters.
+    toc: { linksSelector: "ol.content-list li a:not(:has(svg))" },
+    content: { bodySelector: ".cha-words", chapterTitleSourceRegex: /\s-\s(.+?)\s-\sWebNovel$/ },
+  }),
 ];
+
+// Shared defaults for the smaller sites: the title from <h1>, the cover from
+// og:image, and the usual pacing. Each entry only states what differs.
+function siteConfig({ toc = {}, content = {}, extraBlacklist = [], ...rest }) {
+  return {
+    toc: { titleSelector: "h1", coverSelector: 'meta[property="og:image"]', coverAttr: "content", ...toc },
+    content,
+    elementBlacklist: [...DEFAULT_ELEMENT_BLACKLIST, ...extraBlacklist],
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+    ...rest,
+  };
+}
+
+// WordPress sites on the Fictioneer theme (same markup as Peach Puff).
+// Scheduled chapters (class "_future") are listed but not yet readable.
+function fictioneerConfig(id, hostnamePattern, siteName, sampleUrls, extra = {}) {
+  return siteConfig({
+    id,
+    hostnamePattern,
+    siteName,
+    sampleUrls,
+    toc: {
+      titleSelector: "h1",
+      coverSelector: ".story__thumbnail img",
+      coverAttr: "src",
+      linksSelector: "li.chapter-group__list-item:not(._future) > .chapter-group__list-item-link",
+    },
+    content: { bodySelector: ".chapter-formatting", nextLinkSelector: "a._navigation._next", nextLinkTextMatch: /^\s*Next/i },
+    ...extra,
+  });
+}
+
+// FancyTL and Boti Translation run on one script-rendered platform: book
+// pages list chapters 100 at a time, so walk from the first table row.
+function fancyPlatformConfig(id, hostnamePattern, siteName, origin) {
+  return siteConfig({
+    id,
+    hostnamePattern,
+    siteName,
+    requiresTabFetch: true,
+    sampleUrls: {
+      toc: `${origin}/book/12884-son-of-the-hero-king`,
+      firstChapter: `${origin}/chapter/1435392-book-1-vol-1-ch-1-an-intriguing-order`,
+    },
+    toc: { titleSelector: "title", coverSelector: ".cover img", coverAttr: "src", firstChapterSelector: "tr > td > a.title-color", firstChapterTextMatch: /^/ },
+    content: { bodySelector: "#chapterContent", nextLinkSelector: "a#nextBtn", nextLinkTextMatch: /^/ },
+  });
+}
 
 function jormuntlConfig(id, hostnamePattern, siteName, sampleUrls) {
   return {
@@ -1091,6 +1468,8 @@ function buildGenericConfig(hostname) {
       coverSelector: 'meta[property="og:image"]',
       coverAttr: "content",
       linksSelector: null,
+      // Where a story starts, in the languages of the sites people ask for.
+      startLinkTextMatch: /^\s*(start reading|read (the )?first( chapter)?|first chapter|begin reading|read now|chapter 0*1\b|ch\.?\s*0*1\b|開始閱讀|开始阅读|從頭閱讀|第一章|第0*1章|第0*1話|最初から読む|첫\s*화|1\s*화|đọc từ đầu|chương đầu|chương 0*1\b|начать чтение|читать с начала|глава 1\b|leer desde el (inicio|principio)|capítulo 0*1\b|commencer la lecture|chapitre 0*1\b|baca dari awal|bab 0*1\b)/i,
     },
     content: {
       bodySelector: null,
@@ -1102,14 +1481,16 @@ function buildGenericConfig(hostname) {
       ],
       nextLinkSelector: "a",
       // English plus the common Korean, Chinese, Japanese, and European labels.
-      nextLinkTextMatch: /^\s*(next\b|다음\s*화|다음|下一[章页頁话話]|次の?[話章へ]|siguiente|suivant|próximo|weiter)/i,
+      nextLinkTextMatch: /^\s*(next\b|다음\s*화|다음|下一[章页頁话話]|次の?[話章へ]|siguiente|suivant|próximo|weiter|chương (sau|tiếp)|tiếp theo|дальше|следующая|selanjutnya|berikutnya|ถัดไป|sonraki)/i,
       // Icon-only next buttons have no text to match.
       nextLinkFallbackSelector: 'a[rel~="next"], #next_move, #goNextBtn, .btn-next, a.next, .next > a, a.next-chapter, #next_chap',
     },
     siteName: hostname,
     elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
-    fetchIntervalBase: 1200,
-    fetchJitterRange: 800,
+    // Nobody has checked how much an unlisted site tolerates, so start slower
+    // than supported sites; adaptive pacing speeds up only after clean pages.
+    fetchIntervalBase: 2500,
+    fetchJitterRange: 1500,
   };
 }
 

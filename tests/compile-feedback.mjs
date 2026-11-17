@@ -7,6 +7,7 @@ import { webcrypto } from "node:crypto";
 import { queueSnapshot, restoreQueue } from "../core/QueueState.js";
 import { SiteRateLimiter, parseRetryAfter } from "../core/RateLimiter.js";
 import { decodeHtml } from "../core/Charset.js";
+import { getConfigForUrl as realConfigForUrl } from "../core/ParserRegistry.js";
 
 const source = readFileSync(new URL("../ui/main.js", import.meta.url), "utf8")
   .replace(/^import .*;\r?\n/gm, "");
@@ -256,7 +257,7 @@ const tocPages = {
   p1: { links: [tocLink("/c/1"), tocLink("/c/2")], next: [tocLink("/novel?page=1", "1"), tocLink("/novel?page=2#chapters", "Next")] },
   p2: { links: [tocLink("/c/2"), tocLink("/c/3")], next: [tocLink("/novel?page=3", "Next")] },
 };
-ctx.DOMParser = class { parseFromString(html) { const page = tocPages[html]; return { querySelectorAll: (s) => (s === "LINKS" ? page.links : page.next) }; } };
+ctx.DOMParser = class { parseFromString(html) { const page = tocPages[html]; const pick = (s) => (s === "LINKS" ? page.links : page.next); return { querySelectorAll: pick, querySelector: (s) => pick(s)[0] || null }; } };
 ctx.fetch = async (url) => (url.endsWith("page=2") ? htmlPage("p2") : { ok: false, status: 404 });
 ctx.pagedConfig = { id: "paged", siteName: "Paged", fetchIntervalBase: 0, toc: { linksSelector: "LINKS", nextPageSelector: "NEXT", nextPageTextMatch: /^\s*Next\s*$/ } };
 vm.runInContext("pageCache.clear(); clearLog();", ctx);
@@ -266,4 +267,53 @@ assert.deepEqual(Array.from(paged, ({ a, pageUrl }) => new URL(a.getAttribute("h
 assert.match(logText(), /Reading chapter list page 2: https:\/\/example\.com\/novel\?page=2$/m);
 assert.match(logText(), /stopped reading the chapter list at https:\/\/example\.com\/novel\?page=3 \(HTTP 404\)/);
 
-console.log("Compile feedback checks passed (36 scenarios).");
+// Newest-first lists are ordered by the number in the link's URL or text.
+const entry = (text, href) => ({ ...link(text, href), dataset: {} });
+const indexOf = (a, toc) => { ctx.testA = a; ctx.testToc = { toc }; return vm.runInContext("tocChapterIndex(testA, 4, testToc)", ctx); };
+assert.equal(indexOf(entry("C12 : Title", "/chapter/9981"), { chapterIndexFromTextRegex: /^C(\d+)\b/ }), 12);
+assert.equal(indexOf(entry("#7", "/novels/x/7-gg/"), { chapterIndexFromHrefRegex: /\/(\d+)-[^/]*\/?$/ }), 7);
+assert.equal(indexOf(entry("Announcement", "/chapter/1"), { chapterIndexFromTextRegex: /^C(\d+)\b/ }), 5, "unnumbered entries keep list order");
+
+// An index showing only the newest chapters is filled in from numbered paths.
+ctx.listed = [{ index: 4, href: "https://ex.com/novel/chapter/4", label: "Latest" }, { index: 2, href: "https://ex.com/novel/chapter/2", label: "Two" }];
+vm.runInContext("fillNumberedChapters(listed, 'https://ex.com/novel/', '/chapter/')", ctx);
+assert.deepEqual(ctx.listed.map((c) => [c.index, c.href]).sort((a, b) => a[0] - b[0]),
+  [[1, "https://ex.com/novel/chapter/1"], [2, "https://ex.com/novel/chapter/2"], [3, "https://ex.com/novel/chapter/3"], [4, "https://ex.com/novel/chapter/4"]]);
+
+// Translator's notes outside the body are found by selector and heading text.
+const box = (text) => ({ textContent: text });
+ctx.notesConfig = { content: { notesSelector: "NOTES", notesTextMatch: /^\s*Translator'?s Notes/i } };
+ctx.notesDoc = { querySelectorAll: () => [box("Announcement"), box("Translator's Notes 1 Slang for...")] };
+assert.equal(vm.runInContext("findChapterNotes(notesDoc, notesConfig)", ctx).textContent, "Translator's Notes 1 Slang for...");
+ctx.notesDoc = { querySelectorAll: () => [box("Announcement")] };
+assert.equal(vm.runInContext("findChapterNotes(notesDoc, notesConfig)", ctx), null);
+
+// A chapter split over pages follows "next page", not "next chapter".
+ctx.pageConfig = { content: { pageLinkTextMatch: /^下一頁$/ } };
+ctx.pageDoc = fakeDoc([link("看下一章", "/chapter/1/56021.html"), link("下一頁", "/chapter/1/56020_2.html")]);
+assert.equal(vm.runInContext("findChapterPageLink(pageDoc, 'https://uu.example/chapter/1/56020.html', pageConfig)", ctx), "https://uu.example/chapter/1/56020_2.html");
+ctx.pageDoc = fakeDoc([link("下一章", "/chapter/1/56021.html")]);
+assert.equal(vm.runInContext("findChapterPageLink(pageDoc, 'https://uu.example/chapter/1/56020_2.html', pageConfig)", ctx), null);
+
+// Unlisted sites: the novel's page is enough. A start link is found in many
+// languages, and a pasted chapter page is used as the first chapter.
+const generic = realConfigForUrl("https://unlisted.example/novel/abc");
+for (const label of ["Start Reading", "Read First Chapter", "Chapter 1", "開始閱讀", "第1章", "Đọc từ đầu", "Начать чтение", "1화"]) {
+  assert.match(label, generic.toc.startLinkTextMatch, label);
+}
+for (const label of ["Chapter 10", "Chapter 12: Rain", "Latest chapter"]) assert.doesNotMatch(label, generic.toc.startLinkTextMatch, label);
+for (const label of ["Chương sau", "Дальше →", "Selanjutnya"]) assert.match(label, generic.content.nextLinkTextMatch, label);
+assert.ok(generic.fetchIntervalBase >= 2000, "unlisted sites start at a slow, polite pace");
+ctx.genericStartConfig = generic;
+const startPage = (links) => {
+  ctx.DOMParser = class { parseFromString() { return { querySelectorAll: (s) => (s === "a" || s === "a[href]" ? links : []) }; } };
+  vm.runInContext("fetchPage = async () => 'page';", ctx);
+};
+startPage([link("Chapter 12", "/n/c12"), link("Start Reading", "/n/c1"), link("Chapter 1", "https://elsewhere.example/c1")]);
+assert.equal(await vm.runInContext("findGenericStart('https://unlisted.example/n', genericStartConfig)", ctx), "https://unlisted.example/n/c1");
+startPage([link("Next", "/n/c3")]);
+assert.equal(await vm.runInContext("findGenericStart('https://unlisted.example/n/c2', genericStartConfig)", ctx), "https://unlisted.example/n/c2", "a chapter page starts at itself");
+startPage([link("Home", "/")]);
+await assert.rejects(vm.runInContext("findGenericStart('https://unlisted.example/n', genericStartConfig)", ctx), /Could not find where this novel starts/);
+
+console.log("Compile feedback checks passed (43 scenarios).");
