@@ -362,17 +362,23 @@ export const SITE_CONFIGS = [
   },
   {
     id: "novelfire",
-    hostnamePattern: /(^|\.)novelfire\.net$/,
+    // Renamed to Novel Phoenix in 2026; novelfire.net /book/ links redirect
+    // to novelphoenix.com /novel/.
+    hostnamePattern: /(^|\.)(novelfire\.net|novelphoenix\.com)$/,
     sampleUrls: {
-      toc: "https://novelfire.net/book/unclassified-zero-and-still-standing",
-      firstChapter: "https://novelfire.net/book/unclassified-zero-and-still-standing/chapter-1",
+      toc: "https://novelphoenix.com/novel/unclassified-zero-and-still-standing",
+      firstChapter: "https://novelphoenix.com/novel/unclassified-zero-and-still-standing/chapter-1",
     },
     toc: {
       titleSelector: 'meta[property="og:title"]',
       titleAttr: "content",
       // The og:title has a " - Novel Fire" suffix - strip it so chapter-title
       // extraction can match the novel title prefix.
-      titleSuffixRegex: /\s*-\s*Novel Fire\s*$/i,
+      titleSuffixRegex: /\s*-\s*Novel (Fire|Phoenix)\s*$/i,
+      // The book page links only "Read Now" and the separate /chapters
+      // page, so walk from chapter 1.
+      firstChapterSelector: "nav.links a.button",
+      firstChapterTextMatch: /^\s*Read Now/i,
       coverSelector: 'meta[property="og:image"]',
       coverAttr: "content",
       // The full chapter list lives on a separate "/chapters" sub-page
@@ -389,7 +395,7 @@ export const SITE_CONFIGS = [
       nextLinkSelector: 'a[rel="next"]',
       nextLinkTextMatch: /^/,
     },
-    siteName: "Novel Fire",
+    siteName: "Novel Phoenix",
     elementBlacklist: [
       ...DEFAULT_ELEMENT_BLACKLIST,
       // In-content ad placeholders.
@@ -675,7 +681,383 @@ export const SITE_CONFIGS = [
     fetchIntervalBase: 800,
     fetchJitterRange: 600,
   },
+  // Three translation groups share the "jormuntl" WordPress theme.
+  jormuntlConfig("mochistar", /(^|\.)mochistar\.org$/, "MochiStar Cafe", {
+    toc: "https://mochistar.org/story/damn-the-male-leads-got-stolen-again/",
+    firstChapter: "https://mochistar.org/story/damn-the-male-leads-got-stolen-again/87919-c1/",
+  }),
+  jormuntlConfig("oceanstale", /(^|\.)oceanstale\.com$/, "Ocean Tales", {
+    toc: "https://oceanstale.com/novels/dont-act-aloof-with-me/",
+    firstChapter: "https://oceanstale.com/chapter/daa-1/",
+  }),
+  jormuntlConfig("bailiantales", /(^|\.)bailiantales\.com$/, "BaiLianTales", {
+    toc: "https://bailiantales.com/novel/how-long-are-you-going-to-keep-acting-cool-abo/",
+    firstChapter: "https://bailiantales.com/novel/how-long-are-you-going-to-keep-acting-cool-abo/chapter-1/",
+  }),
+  {
+    id: "kaystls",
+    hostnamePattern: /(^|\.)kaystls\.site$/,
+    // The chapter list (.kstoc-list) is filled in by script after load.
+    requiresTabFetch: true,
+    sampleUrls: {
+      toc: "https://kaystls.site/frontier-magic-pharmacist/",
+      firstChapter: "https://kaystls.site/frontier-magic-pharmacist/chapter-1/",
+    },
+    toc: {
+      titleSelector: "title",
+      titleSuffixRegex: /\s*[–-]\s*Kay's translations\s*$/i,
+      coverSelector: 'meta[property="og:image"]',
+      coverAttr: "content",
+      linksSelector: ".kstoc-list a",
+    },
+    content: {
+      // The chapter text is the only block-editor column with paragraphs;
+      // .entry-content also wraps the site header.
+      bodySelector: ".wp-block-column:has(> p + p)",
+      nextLinkSelector: ".wp-block-column a",
+      nextLinkTextMatch: /^\s*Next Chapter/i,
+    },
+    siteName: "Kay's translations",
+    // The TOC | Next Chapter row inside the column.
+    elementBlacklist: [...DEFAULT_ELEMENT_BLACKLIST, "p:has(> a)"],
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+  },
+  {
+    id: "peachpuff",
+    hostnamePattern: /(^|\.)peachpuff\.in$/,
+    sampleUrls: {
+      toc: "https://peachpuff.in/story/beyond-the-outline/",
+      firstChapter: "https://peachpuff.in/chapter/bto-ch1/",
+    },
+    toc: {
+      titleSelector: "h1.story__identity-title",
+      // og:image is the site logo; the story's own cover is the thumbnail.
+      coverSelector: ".story__thumbnail img",
+      coverAttr: "src",
+      linksSelector: ".chapter-group__list-item-link",
+    },
+    content: {
+      bodySelector: ".chapter-formatting",
+      nextLinkSelector: "a._navigation._next",
+      nextLinkTextMatch: /^\s*Next/i,
+    },
+    siteName: "Peach Puff Translations",
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+  },
+  {
+    id: "readthedrama",
+    hostnamePattern: /(^|\.)readthedrama\.com$/,
+    // Chapter text is rendered by script; only the index is in the HTML.
+    requiresTabFetch: true,
+    sampleUrls: {
+      toc: "https://www.readthedrama.com/novels/when-i-meet-the-moon",
+      firstChapter: "https://www.readthedrama.com/novels/when-i-meet-the-moon/chapters/1",
+    },
+    toc: {
+      titleSelector: "h1",
+      coverSelector: 'meta[property="og:image"]',
+      coverAttr: "content",
+      linksSelector: 'div.divide-y a[href*="/chapters/"]',
+      chapterIndexFromHrefRegex: /\/chapters\/(\d+)/,
+    },
+    content: {
+      bodySelector: "article",
+      nextLinkSelector: 'a[href*="/chapters/"]',
+      nextLinkTextMatch: /^\s*Next/i,
+    },
+    siteName: "ReadTheDrama",
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+  },
+  {
+    id: "konkon",
+    hostnamePattern: /(^|\.)konkon\.ink$/,
+    // Chapter text and its Next link are rendered by script.
+    requiresTabFetch: true,
+    sampleUrls: {
+      toc: "https://konkon.ink/read/an-ordinary-game-streamers-true-colors-are-exposed-to-the-world-after-footage-goes-viral-showing-him-losing-his-temper-and-ruthlessly-slaughtering-monsters-to-blow-off-steam",
+      firstChapter: "https://konkon.ink/read/chapter/61976/chapter-1-the-overstressed-streamer-heads-into-the-dungeon",
+    },
+    toc: {
+      titleSelector: "h1",
+      coverSelector: 'meta[property="og:image"]',
+      coverAttr: "content",
+      // Each row also has a "View" button to the same chapter; take the title link only.
+      linksSelector: ".chapter-row a.truncate",
+    },
+    content: {
+      bodySelector: "article.prose",
+      nextLinkSelector: 'a[href*="/read/chapter/"]',
+      nextLinkTextMatch: /^\s*Next/i,
+    },
+    siteName: "Konkon",
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+  },
+  {
+    id: "cuttlefishreads",
+    hostnamePattern: /(^|\.)cuttlefishreads\.com$/,
+    sampleUrls: {
+      toc: "https://www.cuttlefishreads.com/novels/cloudy-turning-to-snoring",
+      firstChapter: "https://www.cuttlefishreads.com/novels/cloudy-turning-to-snoring/1",
+    },
+    toc: {
+      titleSelector: "h1",
+      coverSelector: 'meta[property="og:image"]',
+      coverAttr: "content",
+      linksSelector: "ol.divide-y li a",
+    },
+    content: {
+      bodySelector: ".chapter-prose",
+      nextLinkSelector: 'a[href*="/novels/"]',
+      nextLinkTextMatch: /Next chapter/i,
+    },
+    siteName: "Cuttlefish",
+    // Scrambled decoy paragraphs are mixed into the text, hidden from
+    // readers and screen readers alike.
+    elementBlacklist: [...DEFAULT_ELEMENT_BLACKLIST, "[hidden]", '[aria-hidden="true"]'],
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+  },
+  {
+    id: "hostednovel",
+    hostnamePattern: /(^|\.)hostednovel\.com$/,
+    // Chapter pages have no next-chapter link, so the paginated index is
+    // the only way to list chapters.
+    preferTocDiscovery: true,
+    sampleUrls: {
+      toc: "https://hostednovel.com/novel/necromancer-i-am-a-disaster",
+      firstChapter: "https://hostednovel.com/novel/necromancer-i-am-a-disaster/chapter-1",
+    },
+    toc: {
+      titleSelector: "h1",
+      coverSelector: 'img[src*="/covers/"]',
+      coverAttr: "src",
+      // 100 chapters per page, newest first; the number in the URL orders them.
+      linksSelector: 'li.min-w-0 > a[href*="/chapter-"]',
+      chapterIndexFromHrefRegex: /\/chapter-(\d+)$/,
+      nextPageSelector: 'a[href*="page="]',
+      nextPageTextMatch: /^\s*Next\s*$/i,
+      authorSourceRegex: />Author<\/dt>\s*<dd[^>]*>(?:<!--\[-->)?([^<]+)/,
+    },
+    content: {
+      bodySelector: ".chapter-body",
+      nextLinkSelector: 'a[rel="next"]',
+      nextLinkTextMatch: /^/,
+    },
+    siteName: "Hosted Novel",
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+  },
+  {
+    id: "lightnovelasia",
+    hostnamePattern: /(^|\.)lightnovelasia\.com$/,
+    // A single-page app: nothing but a shell arrives without a browser tab.
+    requiresTabFetch: true,
+    sampleUrls: {
+      toc: "https://lightnovelasia.com/novel/great-qin-who-dared-provoke-my-frail-and-sickly-xian-qing",
+      firstChapter: "https://lightnovelasia.com/great-qin-who-dared-provoke-my-frail-and-sickly-xian-qing-chapter-1",
+    },
+    toc: {
+      titleSelector: "h1",
+      coverSelector: 'meta[property="og:image"]',
+      coverAttr: "content",
+      linksSelector: "a.novel-chapter-card",
+      // The index shows only the latest dozen chapters; walk from chapter 1.
+      firstChapterSelector: "a.novel-primary-action",
+      firstChapterTextMatch: /^\s*Start reading/i,
+    },
+    content: {
+      bodySelector: "article",
+      nextLinkSelector: "a.ch-nav-btn--next",
+      nextLinkTextMatch: /^\s*Next/i,
+    },
+    siteName: "LightNovelAsia",
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
+    // The chapter text renders before the Next button does.
+    tabFetchDelay: 3000,
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+  },
+  {
+    id: "novelito",
+    hostnamePattern: /(^|\.)noveli\.to$/,
+    // A single-page app: the chapter list and text are rendered by script.
+    requiresTabFetch: true,
+    sampleUrls: {
+      toc: "https://noveli.to/novel/almighty-student",
+      firstChapter: "https://noveli.to/read/4202/906084",
+    },
+    toc: {
+      titleSelector: "h1",
+      coverSelector: 'meta[property="og:image"]',
+      coverAttr: "content",
+      // The full list, oldest first; excludes the "Start Reading" button.
+      linksSelector: 'div.grid > a[href^="/read/"]',
+    },
+    content: {
+      // Each paragraph is its own div#p-N.
+      bodySelector: 'div:has(> div[id^="p-"])',
+      nextLinkSelector: 'a[href^="/read/"]',
+      nextLinkTextMatch: /^\s*Next/i,
+      // <title> is "Read {Novel} Chapter 1 Online Free | Novelito".
+      chapterTitleSelector: "h1",
+    },
+    siteName: "Novelito",
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+  },
+  {
+    id: "kanunu8",
+    hostnamePattern: /(^|\.)kanunu8\.com$/,
+    sampleUrls: {
+      toc: "https://www.kanunu8.com/book7/dbsbfding/",
+      firstChapter: "https://www.kanunu8.com/book7/dbsbfding/436672.html",
+    },
+    toc: {
+      titleSelector: "h1",
+      coverSelector: "img.cover",
+      coverAttr: "src",
+      // Chapter links are relative ("436673.html"); site navigation is absolute.
+      linksSelector: 'ul li a[href$=".html"]:not([href^="/"]):not([href^="http"])',
+      // "{title} - 小说在线阅读 - {author} - 努努书坊"
+      authorSourceRegex: /<title>[^<]*?-\s*([^<-]+?)\s*-\s*努努书坊/,
+    },
+    content: {
+      bodySelector: "#neirong",
+      nextLinkSelector: "a#BookNext",
+      nextLinkTextMatch: /下一章/,
+      // "{novel} - 正文 第一章 丑闻 by {author} - 努努书坊 - 小说在线阅读"
+      chapterTitleSourceRegex: /\s-\s(?:正文\s*)?(.+?)\sby\s/,
+    },
+    siteName: "努努书坊",
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+  },
+  {
+    id: "ixdzs",
+    hostnamePattern: /(^|\.)ixdzs\.tw$/,
+    // Plain requests are refused (403); pages load in a normal tab.
+    requiresTabFetch: true,
+    sampleUrls: {
+      toc: "https://ixdzs.tw/read/586712/",
+      firstChapter: "https://ixdzs.tw/read/586712/p1.html",
+    },
+    toc: {
+      titleSelector: 'meta[property="og:title"]',
+      titleAttr: "content",
+      coverSelector: 'meta[property="og:image"]',
+      coverAttr: "content",
+      linksSelector: 'a[href*="/p"][href$=".html"]',
+      // The index shows the latest chapters and a sample; walk from chapter 1.
+      firstChapterSelector: 'a[href$="/p1.html"]',
+      firstChapterTextMatch: /立即閱讀/,
+      authorSourceRegex: /"author"[^}]*"name":"([^"]+)"/,
+    },
+    content: {
+      bodySelector: "article.page-content section",
+      nextLinkSelector: 'a[href$=".html"]',
+      nextLinkTextMatch: /^\s*下一章/,
+      // "第1章 她該清醒了_{novel}_繁體免費線上看-愛下電子書"
+      chapterTitleSourceRegex: /^([^_]+)_/,
+    },
+    siteName: "愛下電子書",
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
+    fetchIntervalBase: 1200,
+    fetchJitterRange: 800,
+  },
+  {
+    id: "mintteanovel",
+    hostnamePattern: /(^|\.)mintteanovel\.com$/,
+    sampleUrls: {
+      toc: "https://mintteanovel.com/truyen/acid/",
+      firstChapter: "https://mintteanovel.com/truyen/acid/chuong-01/",
+    },
+    toc: {
+      titleSelector: 'meta[property="og:title"]',
+      titleAttr: "content",
+      coverSelector: 'meta[property="og:image"]',
+      coverAttr: "content",
+      linksSelector: 'a[href*="/chuong-"]',
+      // The index is paginated newest-first; walk from "Từ đầu" (from the start).
+      firstChapterSelector: 'a[href*="/chuong-"]',
+      firstChapterTextMatch: /^\s*Từ đầu\s*$/i,
+      authorSourceRegex: /\/tac-gia\/[^"]*"[^>]*>([^<]+)</,
+    },
+    content: {
+      bodySelector: "#chapter-content",
+      nextLinkSelector: 'a[href*="/chuong-"]',
+      nextLinkTextMatch: /^\s*Sau\s*$/i,
+      // "Chương đã bị khóa": the chapter is locked for signed-out readers.
+      lockedTextMatch: /Chương đã bị khóa/i,
+    },
+    siteName: "Minttea Novel",
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+  },
+  {
+    id: "empirenovel",
+    hostnamePattern: /(^|\.)empirenovel\.com$/,
+    sampleUrls: {
+      toc: "https://www.empirenovel.com/novel/this-dungeon-grew-mushrooms",
+      firstChapter: "https://www.empirenovel.com/novel/this-dungeon-grew-mushrooms/1",
+    },
+    toc: {
+      titleSelector: "h1",
+      coverSelector: 'meta[property="og:image"]',
+      coverAttr: "content",
+      linksSelector: "a.chapter_link",
+      // The index is paginated newest-first; walk from "First Chapter".
+      firstChapterSelector: "div.col-6 a",
+      firstChapterTextMatch: /^\s*First Chapter/i,
+      authorSourceRegex: /[Aa]uthor[\s\S]{0,200}?<a[^>]*>([^<]+)<\/a>/,
+    },
+    content: {
+      bodySelector: "#read-novel",
+      // The arrow is icon-only.
+      nextLinkSelector: "a#chapter-right",
+      nextLinkTextMatch: /^/,
+      chapterTitleSelector: "h3",
+    },
+    siteName: "Empire Novel",
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+  },
 ];
+
+function jormuntlConfig(id, hostnamePattern, siteName, sampleUrls) {
+  return {
+    id,
+    hostnamePattern,
+    sampleUrls,
+    toc: {
+      titleSelector: "h1",
+      coverSelector: "img.wp-post-image",
+      coverAttr: "src",
+      linksSelector: "#novel-toc-list a",
+      authorSourceRegex: /"author"[^}]*"name":"([^"]+)"/,
+    },
+    content: {
+      bodySelector: ".chapter-content",
+      nextLinkSelector: "a.btn-secondary",
+      nextLinkTextMatch: /^\s*Next/i,
+    },
+    siteName,
+    elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,
+    fetchIntervalBase: 1000,
+    fetchJitterRange: 600,
+  };
+}
 
 // Best-effort fallback for sites with no dedicated entry above. Content is
 // located via ContentDetector's auto-detection (bodySelector: null) instead

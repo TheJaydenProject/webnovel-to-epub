@@ -31,6 +31,7 @@ const { chromium } = process.env.PLAYWRIGHT_CORE ? require(process.env.PLAYWRIGH
 const { SITE_CONFIGS } = await import(pathToFileURL(join(extensionDir, "core", "ParserRegistry.js")).href);
 
 const CHAPTERS = 2;
+const BLOCK_PAGE = /access (temporarily )?(blocked|denied)|automated script or headless browser/i;
 const SITE_TIMEOUT_MS = 6 * 60 * 1000;
 
 function findChromium() {
@@ -133,11 +134,18 @@ async function runSite(context, extensionId, config) {
       return result;
     }
     if (await dashboard.isHidden("#chapterSection")) {
-      result.detail = (await dashboard.textContent("#resultCounts").catch(() => "")) || "Load failed";
       result.log = log.split("\n").slice(-12).join("\n");
+      // Even chapter 1 is behind an account.
+      if (/chapter is locked\. Log in/.test(log)) {
+        result.status = "login";
+        result.detail = "Site requires an account to read; sign in and rerun with HEADED=1 to verify";
+        return result;
+      }
+      result.detail = (await dashboard.textContent("#resultCounts").catch(() => "")) || "Load failed";
       return result;
     }
     result.found = await dashboard.$$eval("#chapterList input[type=checkbox]", (boxes) => boxes.length);
+    if (result.found < CHAPTERS) result.loadLog = log.split("\n").slice(-12).join("\n");
 
     await dashboard.click("#selectNoneBtn");
     const boxes = await dashboard.$$("#chapterList input[type=checkbox]");
@@ -168,7 +176,9 @@ async function runSite(context, extensionId, config) {
           const text = xhtml.replace(/^[\s\S]*?<\/h1>/, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
           // Words that usually mean navigation, comments, or ads leaked into the body.
           const junk = (text.match(/\b(next chapter|previous chapter|comments?|advertisement|log ?in to|subscribe|table of contents)\b/gi) || []).slice(0, 5);
-          chapters.push({ heading, words: text.split(" ").length, start: text.slice(0, 90), junk });
+          // Chinese and Japanese text has no spaces: count each character as a word.
+          const cjk = (text.match(/[぀-ヿ㐀-鿿가-힯]/g) || []).length;
+          chapters.push({ heading, words: text.replace(/[぀-ヿ㐀-鿿가-힯]/g, "").split(" ").filter(Boolean).length + cjk, start: text.slice(0, 90), junk });
         }
         const opf = await zip.file("OEBPS/content.opf").async("string");
         return {
@@ -189,6 +199,13 @@ async function runSite(context, extensionId, config) {
       result.detail = "Site requires an account to read; sign in and rerun with HEADED=1 to verify";
       return result;
     }
+    // Some sites answer automated browsers with a block page in place of the
+    // chapter; a person's browser is not shown it, so this is not our fault.
+    if (result.chapters.length && result.chapters.every((c) => BLOCK_PAGE.test(c.start))) {
+      result.status = "blocked";
+      result.detail = "Site serves a block page to automated browsers; verify by hand in a normal browser";
+      return result;
+    }
     // Stopping link-walking after enough chapters is this harness's own doing.
     if (result.walkStopped) result.issues = result.issues.filter((issue) => !/Chapter discovery was stopped/.test(issue));
     const clean = result.outcome === "success" || (result.outcome === "warning" && !result.issues.length);
@@ -201,6 +218,7 @@ async function runSite(context, extensionId, config) {
     return result;
   } catch (err) {
     result.detail = err.message.split("\n")[0];
+    result.log = (await dashboard.textContent("#log").catch(() => "")).split("\n").slice(-15).join("\n");
     return result;
   } finally {
     if (pageErrors.length) result.pageErrors = pageErrors;

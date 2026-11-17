@@ -6,6 +6,7 @@ import vm from "node:vm";
 import { webcrypto } from "node:crypto";
 import { queueSnapshot, restoreQueue } from "../core/QueueState.js";
 import { SiteRateLimiter, parseRetryAfter } from "../core/RateLimiter.js";
+import { decodeHtml } from "../core/Charset.js";
 
 const source = readFileSync(new URL("../ui/main.js", import.meta.url), "utf8")
   .replace(/^import .*;\r?\n/gm, "");
@@ -26,7 +27,7 @@ async function run(options = {}) {
   let downloads = 0;
   let filename;
   const context = vm.createContext({
-    console, URL, URLSearchParams, crypto: webcrypto, SiteRateLimiter, parseRetryAfter, getConfigForUrl: (url) => ({ id: "generic", siteName: new URL(url).hostname, toc: {}, content: {}, fetchIntervalBase: 0 }), fetch: options.fetch, AbortSignal, queueSnapshot, restoreQueue, history: { replaceState() {} }, location: { search: "", href: "https://extension.example/ui/main.html" },
+    console, URL, URLSearchParams, crypto: webcrypto, SiteRateLimiter, parseRetryAfter, decodeHtml, getConfigForUrl: (url) => ({ id: "generic", siteName: new URL(url).hostname, toc: {}, content: {}, fetchIntervalBase: 0 }), fetch: options.fetch, AbortSignal, queueSnapshot, restoreQueue, history: { replaceState() {} }, location: { search: "", href: "https://extension.example/ui/main.html" },
     document: {
       getElementById(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); },
       createElement: element,
@@ -182,9 +183,10 @@ assert.equal(disguised.outcome, "success");
 assert.match(disguised.counts, /3 of 3 chapter images/);
 
 const ctx = clean.context;
+const htmlPage = (text) => ({ ok: true, status: 200, headers: { get: () => "text/html" }, arrayBuffer: async () => new TextEncoder().encode(text).buffer });
 // Transient server errors are retried; other 4xx answers are not.
 let calls = 0;
-ctx.fetch = async () => ({ ok: ++calls > 2, status: calls > 2 ? 200 : 503, text: async () => "page" });
+ctx.fetch = async () => (++calls > 2 ? htmlPage("page") : { ok: false, status: 503 });
 vm.runInContext("pageCache.clear(); sleep = async () => {};", ctx);
 assert.equal(await vm.runInContext("fetchFast('https://example.com/flaky')", ctx), "page");
 assert.equal(calls, 3);
@@ -213,7 +215,7 @@ const logText = () => vm.runInContext("logLines.join('\\n')", ctx);
 calls = 0;
 ctx.fetch = async () => (++calls === 1
   ? { ok: false, status: 429, headers: { get: (h) => (h === "retry-after" ? "45" : null) } }
-  : { ok: true, status: 200, text: async () => "after pause" });
+  : htmlPage("after pause"));
 vm.runInContext("limiters.clear(); pageCache.clear(); clearLog(); cancelRequested = false;", ctx);
 assert.equal(await vm.runInContext("fetchFast('https://slow.example/chapter-1')", ctx), "after pause");
 assert.equal(calls, 2);
@@ -247,4 +249,21 @@ assert.equal(next(fakeDoc([link("", "/c/0")], [link("", "/c/2")])), "https://exa
 assert.equal(next(fakeDoc([], [link("", "javascript:void(0)")])), null);
 assert.equal(next(fakeDoc([], [link("", "/novel")])), null, "a link back to the index ends the walk");
 
-console.log("Compile feedback checks passed (35 scenarios).");
+// Paginated chapter lists: every page is read, repeated links are dropped,
+// and a failing page keeps the chapters already found.
+const tocLink = (href, text = "") => link(text, href);
+const tocPages = {
+  p1: { links: [tocLink("/c/1"), tocLink("/c/2")], next: [tocLink("/novel?page=1", "1"), tocLink("/novel?page=2#chapters", "Next")] },
+  p2: { links: [tocLink("/c/2"), tocLink("/c/3")], next: [tocLink("/novel?page=3", "Next")] },
+};
+ctx.DOMParser = class { parseFromString(html) { const page = tocPages[html]; return { querySelectorAll: (s) => (s === "LINKS" ? page.links : page.next) }; } };
+ctx.fetch = async (url) => (url.endsWith("page=2") ? htmlPage("p2") : { ok: false, status: 404 });
+ctx.pagedConfig = { id: "paged", siteName: "Paged", fetchIntervalBase: 0, toc: { linksSelector: "LINKS", nextPageSelector: "NEXT", nextPageTextMatch: /^\s*Next\s*$/ } };
+vm.runInContext("pageCache.clear(); clearLog();", ctx);
+ctx.firstTocDoc = new ctx.DOMParser().parseFromString("p1");
+const paged = await vm.runInContext("collectTocLinks(firstTocDoc, 'https://example.com/novel', pagedConfig)", ctx);
+assert.deepEqual(Array.from(paged, ({ a, pageUrl }) => new URL(a.getAttribute("href"), pageUrl).href), ["https://example.com/c/1", "https://example.com/c/2", "https://example.com/c/3"]);
+assert.match(logText(), /Reading chapter list page 2: https:\/\/example\.com\/novel\?page=2$/m);
+assert.match(logText(), /stopped reading the chapter list at https:\/\/example\.com\/novel\?page=3 \(HTTP 404\)/);
+
+console.log("Compile feedback checks passed (36 scenarios).");

@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "setup": "playwright install chromium",
-    "unit": "cd ../.. && node tests/rate-limiter.mjs && node tests/compile-feedback.mjs && node tests/novel-queue.mjs && node tests/e2e/site-status.test.mjs",
+    "unit": "cd ../.. && node tests/rate-limiter.mjs && node tests/charset.mjs &&node tests/compile-feedback.mjs && node tests/novel-queue.mjs && node tests/e2e/site-status.test.mjs",
     "test": "node extension.e2e.mjs",
     "live": "node live-sites.mjs"
   },

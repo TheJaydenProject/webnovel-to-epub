@@ -10,6 +10,7 @@ import { readMistmintPage } from "../core/MistmintHaven.js";
 import { readDreamyPage } from "../core/DreamyPage.js";
 import { readRenderedPage } from "../core/RenderedPage.js";
 import { SiteRateLimiter, parseRetryAfter } from "../core/RateLimiter.js";
+import { decodeHtml } from "../core/Charset.js";
 import { validateGalleryUrl, canonicalDreamyNovelUrl, parseDreamyGallery, parseDreamyNovel, gallerySkipReason, scanEpubLibrary } from "../core/Gallery.js";
 
 const els = {
@@ -152,6 +153,8 @@ async function coolDown(config, retryAfterMs) {
 // `seen` set) and the Stop button are the main safeguards - this is just
 // a last resort so it's effectively never hit for real novels.
 const MAX_CHAPTERS = 10000;
+// Same last-resort cap for paginated chapter lists (`toc.nextPageSelector`).
+const MAX_TOC_PAGES = 500;
 
 // Set by the Stop button; checked between steps of the discovery walk and
 // the compile loop so either can be cut short while keeping whatever was
@@ -900,7 +903,7 @@ async function fetchFast(url) {
     err.status = res.status;
     throw err;
   }
-  const html = await res.text();
+  const html = decodeHtml(await res.arrayBuffer(), res.headers.get("content-type"));
   pageCache.set(url, html);
   return html;
 }
@@ -912,7 +915,8 @@ async function fetchFast(url) {
 // a real background tab (a same-site navigation, so the user's normal
 // session cookies apply) and its rendered HTML is read back out.
 async function fetchPage(url) {
-  if (els.useTabFetch.checked || getConfigForUrl(url).requiresTabFetch) return fetchViaTab(url);
+  const config = getConfigForUrl(url);
+  if (els.useTabFetch.checked || config.requiresTabFetch) return fetchViaTab(url, config.tabFetchDelay ?? 1000);
   return fetchFast(url);
 }
 
@@ -967,9 +971,9 @@ function assertUnlocked(html, config) {
 // is set so the rest of this run skips straight to tab-fetching, on the
 // assumption that later chapters are gated too.
 async function fetchChapterPage(url, config, fetchState) {
-  if (config.requiresTabFetch) return fetchViaTab(url);
-  if (!els.useTabFetch.checked) return fetchFast(url);
   const tabDelay = config.tabFetchDelay ?? 1000;
+  if (config.requiresTabFetch) return fetchViaTab(url, tabDelay);
+  if (!els.useTabFetch.checked) return fetchFast(url);
   if (fetchState.forceTabFetch) return assertUnlocked(await fetchViaTab(url, tabDelay), config);
 
   let html;
@@ -1258,13 +1262,52 @@ async function tryReadBookDetails(tocUrl, config, discoveryIssues) {
   }
 }
 
+// Chapter links from the index page and, for sites whose index is split into
+// pages (`toc.nextPageSelector`), every following page too.
+async function collectTocLinks(doc, url, config) {
+  const pageLinks = (pageDoc, pageUrl) => Array.from(pageDoc.querySelectorAll(config.toc.linksSelector), (a) => ({ a, pageUrl }));
+  if (!config.toc.nextPageSelector) return pageLinks(doc, url);
+
+  const links = [];
+  const seenHrefs = new Set();
+  const seenPages = new Set();
+  let pageDoc = doc;
+  let pageUrl = url;
+  while (pageDoc && !cancelRequested && seenPages.size < MAX_TOC_PAGES) {
+    seenPages.add(pageUrl);
+    for (const link of pageLinks(pageDoc, pageUrl)) {
+      const href = new URL(link.a.getAttribute("href"), pageUrl).href;
+      if (!seenHrefs.has(href)) {
+        seenHrefs.add(href);
+        links.push(link);
+      }
+    }
+    const next = Array.from(pageDoc.querySelectorAll(config.toc.nextPageSelector))
+      .find((a) => (config.toc.nextPageTextMatch || /^/).test(a.textContent) && a.getAttribute("href"));
+    const nextUrl = next && new URL(next.getAttribute("href"), pageUrl).href.replace(/#.*$/, "");
+    if (!nextUrl || seenPages.has(nextUrl)) break;
+    log(`Reading chapter list page ${seenPages.size + 1}: ${nextUrl}`);
+    updateNovelProgress(`Reading chapter list page ${seenPages.size + 1}...`);
+    await sleep(politeDelay(config));
+    pageUrl = nextUrl;
+    try {
+      pageDoc = new DOMParser().parseFromString(await fetchPage(pageUrl), "text/html");
+    } catch (err) {
+      // Keep the chapters already listed rather than failing the whole load.
+      log(`Warning: stopped reading the chapter list at ${pageUrl} (${err.message}). Later chapters may be missing.`);
+      break;
+    }
+  }
+  return links;
+}
+
 async function loadToc(url, config) {
   const html = await fetchPage(url);
   const doc = new DOMParser().parseFromString(html, "text/html");
   const { novelTitle, author, coverUrl } = readBookDetails(html, doc, url, config);
 
-  const linkEls = Array.from(doc.querySelectorAll(config.toc.linksSelector));
-  const chapters = linkEls.map((a, i) => {
+  const linkEls = await collectTocLinks(doc, url, config);
+  const chapters = linkEls.map(({ a, pageUrl }, i) => {
     let index = i + 1;
     if (a.dataset.chapterIndex) {
       index = Number(a.dataset.chapterIndex);
@@ -1277,7 +1320,7 @@ async function loadToc(url, config) {
     }
     return {
       index,
-      href: new URL(a.getAttribute("href"), url).href,
+      href: new URL(a.getAttribute("href"), pageUrl).href,
       label: a.textContent.trim() || `Chapter ${i + 1}`,
     };
   });
