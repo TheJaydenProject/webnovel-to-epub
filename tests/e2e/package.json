@@ -1,10 +1,12 @@
 {
   "private": true,
-  "description": "End-to-end test harness. Kept under tests/ so store/package.ps1 never ships it.",
+  "description": "Test harness. Kept under tests/ so store/package.ps1 never ships it.",
   "type": "module",
   "scripts": {
     "setup": "playwright install chromium",
-    "test": "node extension.e2e.mjs"
+    "unit": "cd ../.. && node tests/rate-limiter.mjs && node tests/compile-feedback.mjs && node tests/novel-queue.mjs && node tests/e2e/site-status.test.mjs",
+    "test": "node extension.e2e.mjs",
+    "live": "node live-sites.mjs"
   },
   "devDependencies": {
     "playwright-core": "1.56.1"

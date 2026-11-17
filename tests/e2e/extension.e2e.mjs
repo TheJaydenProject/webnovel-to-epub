@@ -41,6 +41,7 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const prose = (marker) => `<p>${marker}</p>` + `<p>${"The lantern light swayed over the river as the ferry pushed on through the dark water. ".repeat(4)}</p>`;
 const page = (title, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title} - ${NOVEL}</title></head><body>${body}</body></html>`;
 const requests = [];
+let rateLimitedOnce = false;
 
 const site = createServer((req, res) => {
   const url = new URL(req.url, "http://localhost");
@@ -64,7 +65,13 @@ const site = createServer((req, res) => {
         <script>setTimeout(() => { document.querySelector(".chapter-content").innerHTML = ${JSON.stringify(prose("LATE-TEXT-TWO"))}; }, 1500);</script>
         <a href="/c/3">다음화</a>`));
     case "/c/3":
-      // Icon-only next button; the Korean "previous" link must not be followed.
+      // Rate-limits the first request (the run must pause and resume on its
+      // own), then serves an icon-only next button; the Korean "previous"
+      // link must not be followed.
+      if (!rateLimitedOnce) {
+        rateLimitedOnce = true;
+        return res.writeHead(429, { "content-type": "text/html", "retry-after": "1" }).end("<title>429 Too Many Requests</title><h1>Too Many Requests</h1>");
+      }
       return html(200, page("Chapter 3: Icon", `<div class="chapter-content">${prose("ICON-TEXT-THREE")}</div>
         <a href="/c/2">이전화</a><a id="next_move" href="/c/4" aria-label="Next"><svg width="12" height="12"></svg></a>`));
     case "/c/4":
@@ -152,6 +159,11 @@ try {
   assert.equal(challengeSeen, true, "the fake site served its verification check");
   assert.match(outcome.log, /Verification passed/);
   assert.match(outcome.log, /Same content as the previous chapter/);
+  // The 429 is paused out and retried, invisibly to the result.
+  assert.match(outcome.log, /asked us to slow down\. Pausing \d+s, then continuing automatically/);
+  assert.equal(requests.filter((r) => r === "/c/3").length, 2, "chapter 3 retried exactly once after the pause");
+  // The interactive fixture check outlasts the quiet wait, so the user is asked.
+  assert.match(outcome.log, /automatic security check[\s\S]*Complete it in the tab/);
   // Auto-compile keeps the discovery log, so Copy log covers the whole run.
   assert.match(outcome.log, /Discovering chapter 1: [\s\S]*Fetching cover image/);
   assert.deepEqual(errors, [], "no uncaught errors on the dashboard");

@@ -19,3 +19,4 @@ jszip.js
 
 # E2E test dependencies
 node_modules/
+tests/e2e/live-results.json

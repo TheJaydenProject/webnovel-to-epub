@@ -119,9 +119,23 @@ The scan reports existing books, queued books, Hiatus titles, premium titles, un
 ### Tips
 
 - **Sites behind Cloudflare or a login wall** -- "Use browser tab for fetching" is on by default. Just make sure you are logged in to the site before loading.
-- **Verification checks ("Just a moment...", CAPTCHAs)** -- when a background tab hits one, the extension brings that tab forward. Complete the check yourself and the run continues automatically; the clearance usually covers the rest of the novel. It waits up to 5 minutes, and Stop cancels the wait.
+- **Verification checks ("Just a moment...", CAPTCHAs)** -- Cloudflare's automatic check usually finishes by itself, so the extension first waits quietly for up to 15 seconds. If the check needs a person, it brings that tab forward. Complete the check yourself and the run continues automatically; the clearance usually covers the rest of the novel. It waits up to 5 minutes, and Stop cancels the wait. The extension never tries to solve or bypass these checks.
 - **Copy-protected readers** -- browser-tab fetching reads chapter text rendered inside shadow DOM, and waits for late-loading text instead of reading an empty page.
-- **Flaky connections** -- rate limits (429) and server errors (5xx) are retried twice with growing waits before a chapter is reported as failed.
+- **Flaky connections** -- network errors and server errors (5xx) are retried twice with short waits before a chapter is reported as failed.
+- **WuxiaWorld without signing in** -- the full chapter list still loads. Free chapters are included and locked ones are reported, instead of saving their preview text.
+
+### Adaptive pacing
+
+Each site gets its own request pace, and the extension learns it as it goes. The goal is to stay fast without getting your IP rate-limited or banned.
+
+| What the site does | What the extension does |
+|---|---|
+| Answers normally | Every 8 clean pages, waits 10% less between requests. It never goes below half the site's polite default (or 0.5 s). |
+| Says "slow down" (HTTP 429, or 503 with `Retry-After`) | Doubles the wait, pauses for as long as the site asks (at least 30 s, growing on repeats), then retries the same chapter on its own. The run continues, and the console notes the pause. |
+| Shows a verification check after it had been answering normally | Triples the wait and stops speeding up for the rest of the session. |
+| Asks for a pause longer than 10 minutes | Stops sending requests to that site and keeps what was fetched, rather than risk a ban. |
+
+Learned paces are saved locally per site and drift back to the default after 7 days. A site's limit can only be found by exceeding it, and some sites ban on the first breach without a warning. So the extension never probes past its floor: it speeds up slowly and backs off hard. A 503 on the very first request is treated as the site being down, not as a rate limit, so outages fail fast instead of waiting.
 - **Unlisted sites** -- next-chapter detection understands Korean, Chinese, Japanese, and common European "next" labels plus icon-only next buttons, and stops when a "next" link serves the same chapter again.
 - **Sites with incomplete TOC pages** -- fill in the First chapter URL and the extension follows "Next chapter" links through the whole series.
 - **WuxiaWorld** -- keep a wuxiaworld.com tab open while logged in and the extension fills your API token for you.
@@ -168,8 +182,9 @@ Sites are configured in `core/ParserRegistry.js`. All of these have been tested 
 ## Testing
 
 ```powershell
-node tests/compile-feedback.mjs   # compile, download, retry, and image checks
+node tests/compile-feedback.mjs   # compile, download, retry, pacing, and image checks
 node tests/novel-queue.mjs        # batch queue and gallery controller checks
+node tests/rate-limiter.mjs       # adaptive pacing rules
 ```
 
 Parser fixtures (`tests/*.html`) run in a normal browser: serve the repo folder over HTTP and open each page. Each one shows PASS or FAIL.
@@ -182,6 +197,31 @@ npm install
 npm run setup   # downloads Playwright's Chromium; branded Chrome no longer loads unpacked extensions from the command line
 npm test        # set HEADED=1 to watch it run
 ```
+
+The fake site also returns one HTTP 429, to check that the run pauses, resumes, and still produces a clean EPUB.
+
+**All test commands**, run from `tests/e2e` after the setup above:
+
+| Command | What it checks | Network |
+|---|---|---|
+| `npm run unit` | Pacing rules, compile and queue logic, site status rules | None, takes seconds |
+| `npm test` | The real extension against the local fake site | Local only |
+| `npm run live` | The real extension against every supported site | Real sites |
+
+**Live site check.** Run `npm run live` periodically, and always before adding a new site. Add site ids to check only some sites: `npm run live -- royalroad wattpad`.
+
+It first sends one plain request to each site, then runs the extension and compiles the sample novel's first 2 chapters. Each site gets a verdict saying whose fault a problem is:
+
+| Verdict | Meaning | Action |
+|---|---|---|
+| PASS | Two clean chapters compiled | None |
+| DOWN | The site or the novel page answered 5xx, a DNS error, or nothing | The site's fault. Retry later. If it stays down, check whether the site moved. |
+| GONE | The site is up, but the sample novel returns 404 | Update `sampleUrls` in `core/ParserRegistry.js` |
+| BLOCKED | A check needs a person (a fresh headless profile can't pass it) | Rerun with `HEADED=1` and complete the check yourself |
+| LOGIN | Every chapter needs an account, as WuxiaWorld now does even for chapter 1 | Rerun with `HEADED=1`, sign in on the site in that window, then check again |
+| FAIL / WARN | The site is up, but the extension failed or got thin text | A real bug to fix |
+
+The command exits with an error only for GONE, FAIL or WARN. It uses a fresh profile with no logins, and it never solves or bypasses verification checks. Full details go to `tests/e2e/live-results.json`.
 
 ## Requesting a New Site
 
