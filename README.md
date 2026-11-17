@@ -235,46 +235,49 @@ Each chapter is first requested with a plain `fetch()`. If the page comes back l
 
 ## Supported Sites
 
-**Mistmint Haven is supported.** Paste a `/novels/...` novel URL in either mode. Browser rendering is used automatically, including both Free and Premium chapter lists, duplicate removal, and numeric chapter/volume ordering. Covers and available chapter images use the existing image pipeline and warning reports. Chapters requiring access are reported as failures; sign in on the site with the necessary access before retrying. Content/age prompts must be handled on the site by the user. Live index and chapter markup and cover retrieval were checked on 2026-09-19; browser fixtures cover discovery, locked chapters, rendering timeouts, and image handling. This is not a full-novel live conversion verification.
-
-**NovelTL is supported.** Paste its `/series/...` index URL in either mode. Chapters are sorted into reading order, with covers and available inline/lazy-loaded images included. Failed images appear in the completion report. Live metadata, chapter lists, and chapter bodies were checked on two novels on 2026-09-19; image packaging is covered by browser fixtures (the sampled live chapters contained no inline images).
-
-**WoopRead is also supported.** Use its `/series/...` index URL in either mode. The parser starts at **Read Now** and follows **Next** links, since the index initially shows only a short preview of the chapter list. Keep browser-tab fetching enabled for client-rendered pages. Covers and available inline/lazy-loaded images are included; missing or failed image URLs appear in the novel's warning report. Live markup and cover retrieval were checked on 2026-09-19; EPUB image packaging was verified with browser fixtures.
+Each site below has a dedicated config in `core/ParserRegistry.js`. Dates show the last check against a live novel. Paste the novel's index URL in either mode.
 
 <details>
-<summary>29 more supported sites (click to expand)</summary>
+<summary>32 supported sites (click to expand)</summary>
 
-Sites are configured in `core/ParserRegistry.js`. Dates show the last time each site was checked against a live novel.
-
-- [wattpad.com](https://www.wattpad.com) - last verified 2026-06-15
-- [royalroad.com](https://www.royalroad.com) - last verified 2026-06-15
-- [scribblehub.com](https://www.scribblehub.com) - last verified 2026-06-15
-- [wuxiaworld.com](https://www.wuxiaworld.com) - last verified 2026-06-14
-- [novelbin.com](https://novelbin.com) / [novelbin.me](https://novelbin.me) - last verified 2026-06-15
-- [novelbuddy.com](https://novelbuddy.com) - last verified 2026-06-15
-- [novelphoenix.com](https://novelphoenix.com) (formerly novelfire.net) - checked in a normal browser 2026-11-17
-- [novelarrow.com](https://novelarrow.com) - last verified 2026-06-15
-- [novelverse.co](https://novelverse.co) (formerly novelverse.online) - last verified 2026-06-15
-- [ranovel.com](https://ranovel.com) - last verified 2026-06-15
-- [wetriedtls.com](https://wetriedtls.com) - last verified 2026-06-15
-- [dreamy-translations.com](https://dreamy-translations.com) - last verified 2026-06-14
-- [dreambigtl.com](https://www.dreambigtl.com) - last verified 2026-06-15
-- [fenrirealm.com](https://fenrirealm.com) - last verified 2026-06-15
-- [mochistar.org](https://mochistar.org), [oceanstale.com](https://oceanstale.com), [bailiantales.com](https://bailiantales.com) - last verified 2026-11-17
-- [kaystls.site](https://kaystls.site) - last verified 2026-11-17
-- [peachpuff.in](https://peachpuff.in) - last verified 2026-11-17
-- [readthedrama.com](https://www.readthedrama.com) - last verified 2026-11-17
-- [konkon.ink](https://konkon.ink) - last verified 2026-11-17
-- [cuttlefishreads.com](https://www.cuttlefishreads.com) - last verified 2026-11-17
-- [hostednovel.com](https://hostednovel.com) - last verified 2026-11-17 (reads every page of the chapter list)
-- [lightnovelasia.com](https://lightnovelasia.com) - last verified 2026-11-17
-- [noveli.to](https://noveli.to) - last verified 2026-11-17
-- [kanunu8.com](https://www.kanunu8.com) (GBK pages) - last verified 2026-11-17
-- [ixdzs.tw](https://ixdzs.tw) - last verified 2026-11-17
-- [empirenovel.com](https://www.empirenovel.com) - checked in a normal browser 2026-11-17
-- [mintteanovel.com](https://mintteanovel.com) - most chapters need a Minttea account; sign in first
+| Site | Last verified | Notes |
+|---|---|---|
+| [wattpad.com](https://www.wattpad.com) | 2026-06-15 | |
+| [royalroad.com](https://www.royalroad.com) | 2026-06-15 | |
+| [scribblehub.com](https://www.scribblehub.com) | 2026-06-15 | |
+| [wuxiaworld.com](https://www.wuxiaworld.com) | 2026-06-14 | Sign in for chapters beyond the free ones |
+| [novelbin.com](https://novelbin.com) / [novelbin.me](https://novelbin.me) | 2026-06-15 | |
+| [novelbuddy.com](https://novelbuddy.com) | 2026-06-15 | |
+| [novelphoenix.com](https://novelphoenix.com) | 2026-11-17 | Formerly novelfire.net |
+| [novelarrow.com](https://novelarrow.com) | 2026-06-15 | |
+| [novelverse.co](https://novelverse.co) | 2026-06-15 | Formerly novelverse.online |
+| [ranovel.com](https://ranovel.com) | 2026-06-15 | |
+| [wetriedtls.com](https://wetriedtls.com) | 2026-06-15 | |
+| [dreamy-translations.com](https://dreamy-translations.com) | 2026-06-14 | Also supports gallery scraping |
+| [dreambigtl.com](https://www.dreambigtl.com) | 2026-06-15 | |
+| [fenrirealm.com](https://fenrirealm.com) | 2026-06-15 | |
+| [Mistmint Haven](https://www.mistminthaven.com) | 2026-09-19 | Free and Premium chapter lists; sign in for locked chapters |
+| [NovelTL](https://noveltl.com) | 2026-09-19 | |
+| [WoopRead](https://woopread.com) | 2026-09-19 | Starts at Read Now and follows Next links; keep browser-tab fetching on |
+| [mochistar.org](https://mochistar.org) | 2026-11-17 | |
+| [oceanstale.com](https://oceanstale.com) | 2026-11-17 | |
+| [bailiantales.com](https://bailiantales.com) | 2026-11-17 | |
+| [kaystls.site](https://kaystls.site) | 2026-11-17 | |
+| [peachpuff.in](https://peachpuff.in) | 2026-11-17 | |
+| [readthedrama.com](https://www.readthedrama.com) | 2026-11-17 | |
+| [konkon.ink](https://konkon.ink) | 2026-11-17 | |
+| [cuttlefishreads.com](https://www.cuttlefishreads.com) | 2026-11-17 | |
+| [hostednovel.com](https://hostednovel.com) | 2026-11-17 | Reads every page of the chapter list |
+| [lightnovelasia.com](https://lightnovelasia.com) | 2026-11-17 | |
+| [noveli.to](https://noveli.to) | 2026-11-17 | |
+| [kanunu8.com](https://www.kanunu8.com) | 2026-11-17 | GBK-encoded pages |
+| [ixdzs.tw](https://ixdzs.tw) | 2026-11-17 | |
+| [empirenovel.com](https://www.empirenovel.com) | 2026-11-17 | |
+| [mintteanovel.com](https://mintteanovel.com) | 2026-11-17 | Most chapters need a MintTea account; sign in first |
 
 </details>
+
+Chapters that need an account the site has not granted are reported as locked, never saved as empty or preview text. Age or content prompts must be accepted on the site first.
 
 ## Testing
 
@@ -352,4 +355,4 @@ Distributed under the MIT License. See [LICENSE](LICENSE) for more information.
 
 ## Contact
 
-Project Link: [https://github.com/TheJaydenProject/webnovel-to-epub](https://github.com/TheJaydenProject/webnovel-to-epub)
+Project link: [github.com/TheJaydenProject/webnovel-to-epub](https://github.com/TheJaydenProject/webnovel-to-epub)
