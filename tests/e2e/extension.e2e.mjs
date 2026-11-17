@@ -16,7 +16,8 @@ import { tmpdir, homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const extensionDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+// EXTENSION_DIR tests a built package (an unzipped store zip) instead of the repo.
+const extensionDir = process.env.EXTENSION_DIR || join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const require = createRequire(import.meta.url);
 const { chromium } = process.env.PLAYWRIGHT_CORE ? require(process.env.PLAYWRIGHT_CORE) : require("playwright-core");
 
