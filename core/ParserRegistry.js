@@ -695,8 +695,17 @@ function buildGenericConfig(hostname) {
     },
     content: {
       bodySelector: null,
+      // Known reader containers are tried before paragraph scoring, which
+      // can be misled by long comment sections.
+      bodyCandidates: [
+        'div[id^="viewer"]', ".viewer_contents", ".theme-novel-content", ".novel-content", "#novel_content",
+        "#chapter-content", ".chapter-content", "#chr-content", ".reading-content",
+      ],
       nextLinkSelector: "a",
-      nextLinkTextMatch: /^\s*next/i,
+      // English plus the common Korean, Chinese, Japanese, and European labels.
+      nextLinkTextMatch: /^\s*(next\b|다음\s*화|다음|下一[章页頁话話]|次の?[話章へ]|siguiente|suivant|próximo|weiter)/i,
+      // Icon-only next buttons have no text to match.
+      nextLinkFallbackSelector: 'a[rel~="next"], #next_move, #goNextBtn, .btn-next, a.next, .next > a, a.next-chapter, #next_chap',
     },
     siteName: hostname,
     elementBlacklist: DEFAULT_ELEMENT_BLACKLIST,

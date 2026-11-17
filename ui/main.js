@@ -8,6 +8,7 @@ import { parseQueueInput, validateNovelUrl } from "../core/QueueInput.js";
 import { queueSnapshot, restoreQueue } from "../core/QueueState.js";
 import { readMistmintPage } from "../core/MistmintHaven.js";
 import { readDreamyPage } from "../core/DreamyPage.js";
+import { readRenderedPage } from "../core/RenderedPage.js";
 import { validateGalleryUrl, canonicalDreamyNovelUrl, parseDreamyGallery, parseDreamyNovel, gallerySkipReason, scanEpubLibrary } from "../core/Gallery.js";
 
 const els = {
@@ -69,15 +70,6 @@ for (const id of ["copyLogBtn", "showFileBtn", "selectionCount", "galleryModeBtn
 }
 
 els.appVersion.textContent = `v${browser.runtime.getManifest().version}`;
-
-const EXT_FOR_MIME = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/gif": "gif",
-  "image/webp": "webp",
-  "image/svg+xml": "svg",
-  "image/avif": "avif",
-};
 
 let state = {
   config: null,
@@ -775,28 +767,62 @@ function sanitizeFilename(name) {
   return clean || "book";
 }
 
+const FETCH_ATTEMPTS = 3;
+
+// Retries network blips, rate limits, and server errors with growing waits.
+// Other 4xx answers are final, so Cloudflare 403s still fall through to
+// browser-tab fetching immediately.
+async function fetchWithRetry(url, options, { retryNetworkErrors = true } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    let res;
+    try {
+      res = await fetch(url, { ...options, signal: AbortSignal.timeout(60000) });
+    } catch (err) {
+      if (err.name === "TimeoutError" || !retryNetworkErrors || attempt >= FETCH_ATTEMPTS) throw err;
+      log(`  Network error (${err.message}) - retrying (${attempt}/${FETCH_ATTEMPTS - 1})...`);
+      await sleep(1500 * attempt + Math.random() * 1000);
+      continue;
+    }
+    const transient = res.status === 429 || res.status >= 500;
+    if (!transient || attempt >= FETCH_ATTEMPTS) return res;
+    log(`  HTTP ${res.status} - retrying (${attempt}/${FETCH_ATTEMPTS - 1})...`);
+    await sleep(1500 * attempt + Math.random() * 1000);
+  }
+}
+
+// Identifies images by their leading bytes. Some hosts deliberately label
+// images as fonts, CSS, or scripts, while hotlink protection answers 200
+// with an HTML page; the bytes tell the two apart where headers cannot.
+function sniffImageExt(bytes) {
+  const ascii = (start, end) => String.fromCharCode(...bytes.slice(start, end));
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "jpg";
+  if (ascii(0, 8) === "\x89PNG\r\n\x1a\n") return "png";
+  if (ascii(0, 4) === "GIF8") return "gif";
+  if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "webp";
+  if (ascii(4, 8) === "ftyp" && /^avi[fs]$/.test(ascii(8, 12))) return "avif";
+  return null;
+}
+
 async function fetchImage(url, fetchState) {
   if (imageCache.has(url)) return imageCache.get(url);
   let res;
   try {
-    res = await fetch(url, { credentials: "include", signal: AbortSignal.timeout(60000) });
+    // A CORS failure here is not transient, so go straight to the cookie-less retry.
+    res = await fetchWithRetry(url, { credentials: "include" }, { retryNetworkErrors: false });
   } catch (err) {
     if (err.name === "TimeoutError") throw new Error("Image request timed out after 60 seconds");
     // Many image CDNs (S3, Supabase, etc.) send a wildcard
     // `Access-Control-Allow-Origin: *`, which browsers reject outright for
     // credentialed requests - retry without cookies for those.
-    res = await fetch(url, { signal: AbortSignal.timeout(60000) });
+    res = await fetchWithRetry(url, {});
   }
   if (res.status === 429 || res.status === 503) bumpThrottle(fetchState, res.status);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const mime = res.headers.get("content-type")?.split(";")[0].trim().toLowerCase() || "";
-  // Hotlink protection often answers 200 with an HTML page; packaging that
-  // as a .jpg ships a broken image instead of reporting it.
-  if (mime && !mime.startsWith("image/") && mime !== "application/octet-stream") {
-    throw new Error(`Not an image (${mime})`);
-  }
   const blob = await res.blob();
-  const ext = EXT_FOR_MIME[mime] || "jpg";
+  const ext = sniffImageExt(new Uint8Array(await blob.slice(0, 16).arrayBuffer()))
+    || (mime === "image/svg+xml" ? "svg" : null);
+  if (!ext) throw new Error(`Not an image (${mime || "unknown type"})`);
   const result = { blob, ext };
   imageCache.set(url, result);
   return result;
@@ -804,7 +830,7 @@ async function fetchImage(url, fetchState) {
 
 async function fetchFast(url) {
   if (pageCache.has(url)) return pageCache.get(url);
-  const res = await fetch(url, { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(60000) });
+  const res = await fetchWithRetry(url, { credentials: "include", cache: "no-store" });
   if (!res.ok) {
     const err = new Error(`HTTP ${res.status}`);
     err.status = res.status;
@@ -839,6 +865,10 @@ function findChapterBody(doc, config) {
     if (fallback) log("  Note: configured selector didn't match - using auto-detected content instead.");
     return fallback;
   }
+  for (const selector of config.content.bodyCandidates || []) {
+    const candidate = doc.querySelector(selector);
+    if (candidate && candidate.textContent.trim().length >= 200) return candidate;
+  }
   return findLikelyContentElement(doc);
 }
 
@@ -846,11 +876,16 @@ function findChapterBody(doc, config) {
 // rather than the full content (per the site's `lockedTextMatch`), or if
 // the chapter content container is missing entirely.
 function looksLocked(html, config) {
-  if (!config.content.lockedTextMatch) return false;
   const doc = new DOMParser().parseFromString(html, "text/html");
-  const body = doc.querySelector(config.content.bodySelector);
-  if (!body) return true;
-  return config.content.lockedTextMatch.test(body.textContent);
+  if (config.content.lockedTextMatch) {
+    const body = doc.querySelector(config.content.bodySelector);
+    if (!body) return true;
+    return config.content.lockedTextMatch.test(body.textContent);
+  }
+  // JavaScript-rendered readers (including shadow DOM copy protection) arrive
+  // over plain HTTP with an empty container; only a real tab renders the text.
+  const body = config.content.bodySelector ? doc.querySelector(config.content.bodySelector) : findChapterBody(doc, config);
+  return !body || (body.textContent.trim().length < 50 && !body.querySelector("img"));
 }
 
 // Fetches a chapter page with hybrid fast/tab fetching: the fast path is
@@ -926,25 +961,66 @@ async function loadCompletedGallery(url) {
   return new Set(parseDreamyGallery(doc, url, true).map(novel => novel.tocUrl));
 }
 
+const VERIFICATION_TIMEOUT_MS = 5 * 60 * 1000;
+
+// A Cloudflare/CAPTCHA check cannot be passed automatically, so show the tab
+// and let the user complete it, the same way a person loading the page would.
+// The clearance cookie it sets then lets later background fetches through.
+async function waitForUserVerification(tabId, readTab) {
+  log("  The site is showing a verification check. Complete it in the tab that just opened; the run continues automatically.");
+  updateNovelProgress("Waiting for you to complete the site's verification check...");
+  setTabStatus("Action needed");
+  await browser.tabs.update(tabId, { active: true });
+  const deadline = Date.now() + VERIFICATION_TIMEOUT_MS;
+  let page = { challenge: true, html: "" };
+  try {
+    while (page.challenge && Date.now() < deadline && !cancelRequested) {
+      await sleep(2000);
+      try {
+        page = await readTab();
+      } catch {
+        // The page navigates once the check passes; read again after it settles.
+      }
+    }
+  } finally {
+    const dashboard = await browser.tabs.getCurrent?.().catch(() => null);
+    if (dashboard) await browser.tabs.update(dashboard.id, { active: true }).catch(() => {});
+  }
+  if (!page.challenge) {
+    log("  Verification passed. Continuing.");
+    return page;
+  }
+  throw new Error(cancelRequested
+    ? "Stopped while waiting for the site's verification check."
+    : "The site's verification check was not completed within 5 minutes.");
+}
+
 async function fetchViaTab(url, delay = 1000, completedOnly = false) {
   const cacheKey = completedOnly ? `${url}#completed-only` : url;
   if (pageCache.has(cacheKey)) return pageCache.get(cacheKey);
+  const config = getConfigForUrl(url);
+  const siteReader = config.id === "mistminthaven" ? readMistmintPage
+    : config.id === "dreamy-translations" ? readDreamyPage : null;
+  const readTab = async () => {
+    const results = await browser.scripting.executeScript({
+      target: { tabId: tab.id },
+      args: siteReader ? [completedOnly] : [config.content?.bodySelector ?? null],
+      func: siteReader || readRenderedPage,
+    });
+    if (results[0]?.error) throw new Error(results[0].error.message || String(results[0].error));
+    const result = results[0]?.result;
+    return siteReader ? { challenge: false, html: result ?? "" } : result ?? { challenge: false, html: "" };
+  };
   const tab = await browser.tabs.create({ url, active: false });
   try {
     await waitForTabLoad(tab.id);
     // Give client-rendered pages a brief moment to finish hydrating after
     // the initial "complete" status before reading the DOM.
     await sleep(delay);
-    const results = await browser.scripting.executeScript({
-      target: { tabId: tab.id },
-      args: [completedOnly],
-      func: getConfigForUrl(url).id === "mistminthaven" ? readMistmintPage
-        : getConfigForUrl(url).id === "dreamy-translations" ? readDreamyPage : () => document.documentElement.outerHTML,
-    });
-    if (results[0]?.error) throw new Error(results[0].error.message || String(results[0].error));
-    const html = results[0]?.result ?? "";
-    pageCache.set(cacheKey, html);
-    return html;
+    let page = await readTab();
+    if (page.challenge) page = await waitForUserVerification(tab.id, readTab);
+    pageCache.set(cacheKey, page.html);
+    return page.html;
   } finally {
     await browser.tabs.remove(tab.id).catch(() => {});
   }
@@ -1078,8 +1154,6 @@ async function tryReadBookDetails(tocUrl, config, discoveryIssues) {
 }
 
 async function loadToc(url, config) {
-  clearLog();
-
   const html = await fetchPage(url);
   const doc = new DOMParser().parseFromString(html, "text/html");
   const { novelTitle, author, coverUrl } = readBookDetails(html, doc, url, config);
@@ -1117,7 +1191,6 @@ async function loadViaWuxiaApi(tocUrl, novelSlug, token, config) {
   const discoveryIssues = [];
   const { novelTitle, author, coverUrl } = await tryReadBookDetails(tocUrl, config, discoveryIssues);
 
-  clearLog();
   els.progressBar.removeAttribute("value");
   els.stopBtn.disabled = false;
 
@@ -1182,7 +1255,6 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
     ? await tryReadBookDetails(tocUrl, config, discoveryIssues)
     : { novelTitle: "Untitled", author: "Unknown", coverUrl: null };
 
-  clearLog();
   els.progressBar.removeAttribute("value"); // indeterminate while discovering
   els.stopBtn.disabled = false;
 
@@ -1195,6 +1267,7 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
   const fetchState = { forceTabFetch: false, throttleMultiplier: 1 };
   let nextUrl = firstChapterUrl;
   let index = 1;
+  let previousBodyText = null;
 
   while (nextUrl && !seen.has(nextUrl) && !cancelRequested && chapters.length < MAX_CHAPTERS) {
     seen.add(nextUrl);
@@ -1213,6 +1286,15 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
     }
 
     const doc = new DOMParser().parseFromString(html, "text/html");
+    // Some sites end a series with a "next" link to a new URL serving the
+    // same chapter again, which the URL cycle check cannot see.
+    const bodyText = findChapterBody(doc, config)?.textContent.trim() || "";
+    if (bodyText && bodyText === previousBodyText) {
+      log("  Same content as the previous chapter - treating it as the last chapter.");
+      nextUrl = null;
+      break;
+    }
+    previousBodyText = bodyText;
     const label = extractChapterTitle(doc, novelTitle, config.siteName, config) || `Chapter ${index}`;
     chapters.push({ index, href: nextUrl, label });
 
@@ -1274,6 +1356,13 @@ function findNextChapterLink(doc, html, currentUrl, config, tocUrl) {
         return resolved;
       }
     }
+  }
+  const fallback = config.content.nextLinkFallbackSelector
+    && Array.from(doc.querySelectorAll(config.content.nextLinkFallbackSelector)).find((a) => a.getAttribute("href"));
+  if (fallback) {
+    const resolved = new URL(fallback.getAttribute("href"), currentUrl).href;
+    // A javascript: or #-only link is not a chapter.
+    if (/^https?:$/.test(new URL(resolved).protocol) && resolved.split("#")[0] !== currentUrl.split("#")[0] && !isTocPage(resolved)) return resolved;
   }
   return null;
 }
@@ -1379,7 +1468,9 @@ async function runCompile({ queued = false } = {}) {
   if (operationRunning && !queued) return;
   setBusy(true);
   els.compileResult.hidden = true;
-  clearLog();
+  // Auto-compile and queued runs continue a load, so keep its discovery log
+  // for Copy log; only a manual recompile starts a fresh log.
+  if (!queued) clearLog();
   if (!queued) cancelRequested = false;
   els.stopBtn.disabled = false;
   const report = newCompileReport();

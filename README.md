@@ -119,6 +119,10 @@ The scan reports existing books, queued books, Hiatus titles, premium titles, un
 ### Tips
 
 - **Sites behind Cloudflare or a login wall** -- "Use browser tab for fetching" is on by default. Just make sure you are logged in to the site before loading.
+- **Verification checks ("Just a moment...", CAPTCHAs)** -- when a background tab hits one, the extension brings that tab forward. Complete the check yourself and the run continues automatically; the clearance usually covers the rest of the novel. It waits up to 5 minutes, and Stop cancels the wait.
+- **Copy-protected readers** -- browser-tab fetching reads chapter text rendered inside shadow DOM, and waits for late-loading text instead of reading an empty page.
+- **Flaky connections** -- rate limits (429) and server errors (5xx) are retried twice with growing waits before a chapter is reported as failed.
+- **Unlisted sites** -- next-chapter detection understands Korean, Chinese, Japanese, and common European "next" labels plus icon-only next buttons, and stops when a "next" link serves the same chapter again.
 - **Sites with incomplete TOC pages** -- fill in the First chapter URL and the extension follows "Next chapter" links through the whole series.
 - **WuxiaWorld** -- keep a wuxiaworld.com tab open while logged in and the extension fills your API token for you.
 - **Stopping early** -- click Stop at any point. You still get an EPUB from whatever chapters were fetched.
@@ -160,6 +164,24 @@ Sites are configured in `core/ParserRegistry.js`. All of these have been tested 
 - [fenrirealm.com](https://fenrirealm.com) - last verified 2026-06-15
 
 </details>
+
+## Testing
+
+```powershell
+node tests/compile-feedback.mjs   # compile, download, retry, and image checks
+node tests/novel-queue.mjs        # batch queue and gallery controller checks
+```
+
+Parser fixtures (`tests/*.html`) run in a normal browser: serve the repo folder over HTTP and open each page. Each one shows PASS or FAIL.
+
+**End-to-end:** `tests/e2e` loads the unpacked extension into Chromium. It points the extension at a local fake novel site and inspects the EPUB it downloads. The fake site covers shadow-DOM text, a Cloudflare-style verification check, late-rendered text, icon-only and Korean "next" links, a repeated last chapter, and an image disguised as a font.
+
+```powershell
+cd tests/e2e
+npm install
+npm run setup   # downloads Playwright's Chromium; branded Chrome no longer loads unpacked extensions from the command line
+npm test        # set HEADED=1 to watch it run
+```
 
 ## Requesting a New Site
 

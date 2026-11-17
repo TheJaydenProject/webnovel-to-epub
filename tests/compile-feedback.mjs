@@ -174,4 +174,42 @@ clean.context.browser.tabs = {
 };
 await vm.runInContext("waitForTabLoad(1, 50)", clean.context);
 
-console.log("Compile feedback checks passed (21 scenarios).");
+// Hosts that label JPEGs as fonts must still be packaged, by their bytes.
+const jpegBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46]);
+const disguised = await run({ realFetchImage: true, fetch: async () => ({ ok: true, status: 200, headers: { get: () => "font/woff" }, blob: async () => new Blob([jpegBytes]) }) });
+assert.equal(disguised.outcome, "success");
+assert.match(disguised.counts, /3 of 3 chapter images/);
+
+const ctx = clean.context;
+// Transient server errors are retried; other 4xx answers are not.
+let calls = 0;
+ctx.fetch = async () => ({ ok: ++calls > 2, status: calls > 2 ? 200 : 503, text: async () => "page" });
+vm.runInContext("pageCache.clear(); sleep = async () => {};", ctx);
+assert.equal(await vm.runInContext("fetchFast('https://example.com/flaky')", ctx), "page");
+assert.equal(calls, 3);
+calls = 0;
+ctx.fetch = async () => { calls++; return { ok: false, status: 403 }; };
+await assert.rejects(vm.runInContext("fetchFast('https://example.com/blocked')", ctx), /HTTP 403/);
+assert.equal(calls, 1, "a 403 must fall through to tab fetching without retries");
+
+// A verification page is shown to the user, then reading resumes once it passes.
+const activated = [];
+ctx.browser.tabs = { update: async (id) => { activated.push(id); }, getCurrent: async () => ({ id: 99 }) };
+let reads = 0;
+ctx.readTabStub = async () => (++reads < 3 ? { challenge: true, html: "" } : { challenge: false, html: "solved" });
+const solved = await vm.runInContext("waitForUserVerification(5, readTabStub)", ctx);
+assert.equal(solved.html, "solved");
+assert.deepEqual(activated, [5, 99], "show the challenge tab, then return to the dashboard");
+
+// Unsupported sites: non-English next labels and icon-only buttons.
+const link = (text, href, extra = {}) => ({ textContent: text, getAttribute: (name) => (name === "href" ? href : null), ...extra });
+const fakeDoc = (links, fallback = []) => ({ querySelectorAll: (selector) => (selector === "a" ? links : fallback) });
+ctx.genericConfig = { content: { nextLinkSelector: "a", nextLinkTextMatch: /^\s*(next\b|다음\s*화|다음|下一[章页頁话話]|次の?[話章へ]|siguiente|suivant|próximo|weiter)/i, nextLinkFallbackSelector: "x" } };
+const next = (doc) => { ctx.testDoc = doc; return vm.runInContext("findNextChapterLink(testDoc, '', 'https://example.com/c/1', genericConfig, 'https://example.com/novel')", ctx); };
+assert.equal(next(fakeDoc([link("이전화", "/c/0"), link("다음화", "/c/2")])), "https://example.com/c/2");
+assert.equal(next(fakeDoc([link("下一章", "/c/2")])), "https://example.com/c/2");
+assert.equal(next(fakeDoc([link("", "/c/0")], [link("", "/c/2")])), "https://example.com/c/2");
+assert.equal(next(fakeDoc([], [link("", "javascript:void(0)")])), null);
+assert.equal(next(fakeDoc([], [link("", "/novel")])), null, "a link back to the index ends the walk");
+
+console.log("Compile feedback checks passed (30 scenarios).");
