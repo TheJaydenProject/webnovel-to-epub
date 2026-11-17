@@ -16,3 +16,6 @@ desktop.ini
 *.zip
 *.xpi
 jszip.js
+
+# E2E test dependencies
+node_modules/

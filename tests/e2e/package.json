@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "description": "End-to-end test harness. Kept under tests/ so store/package.ps1 never ships it.",
+  "type": "module",
+  "scripts": {
+    "setup": "playwright install chromium",
+    "test": "node extension.e2e.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.56.1"
+  }
+}
