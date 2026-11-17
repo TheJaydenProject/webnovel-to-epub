@@ -33,7 +33,7 @@
             WuxiaWorld API token <span class="field-label-opt">(optional)</span>
           </label>
           <div class="input-row">
-            <input id="wuxiaToken" type="password" placeholder="Bearer token — wuxiaworld.com only">
+            <input id="wuxiaToken" type="password" autocomplete="off" spellcheck="false" placeholder="Bearer token, wuxiaworld.com only">
             <button id="wuxiaAutoFillBtn" type="button" class="btn btn-secondary">Get from wuxiaworld.com</button>
           </div>
           <p class="hint">Lets the extension see exactly the chapters your account can access via WuxiaWorld's own API, instead of scraping pages. Saved locally. Tokens expire after approximately 30 days. The extension auto-fills this from an open wuxiaworld.com tab when loading a novel there.</p>
@@ -53,7 +53,7 @@
     <p class="hint">Find novels missing from your EPUB library, then queue and download them automatically. Currently supports Dreamy Translations.</p>
     <div class="field">
       <label class="field-label" for="galleryUrl">Gallery URL</label>
-      <input id="galleryUrl" type="url" value="https://dreamy-translations.com/series">
+      <input id="galleryUrl" type="url" spellcheck="false" value="https://dreamy-translations.com/series">
     </div>
     <div class="field">
       <label class="field-label" for="galleryFolder">Your EPUB library folder</label>
@@ -90,7 +90,7 @@
     <details id="queueInputPanel" class="queue-input" open>
       <summary>Add novels</summary>
     <label class="field-label" for="queueUrls">Novel index URLs, one per line</label>
-    <textarea id="queueUrls" rows="5" aria-describedby="queueHint" placeholder="https://example.com/novel/first-book&#10;https://example.com/novel/second-book"></textarea>
+    <textarea id="queueUrls" rows="5" spellcheck="false" aria-describedby="queueHint" placeholder="https://example.com/novel/first-book&#10;https://example.com/novel/second-book"></textarea>
     <p id="queueHint" class="hint">Paste novel index links, then add them to the queue. Each entry has separate Novel name and First chapter URL fields you can fill in before starting. Leave the first chapter blank to use the site's chapter list. Each novel downloads as its own EPUB. Queue entries and reports are saved locally; unfinished novels wait for you to continue after reopening.</p>
       <div class="actions"><button id="addQueueBtn" class="btn btn-secondary">Add to queue</button></div>
     </details>
@@ -113,15 +113,16 @@
 
     <div class="field">
       <label class="field-label" for="tocUrl">Novel index URL</label>
-      <input id="tocUrl" type="url" placeholder="https://example.com/novel/…">
+      <input id="tocUrl" type="url" autocomplete="url" spellcheck="false" placeholder="https://example.com/novel/…" aria-describedby="tocUrlHint">
+      <p id="tocUrlHint" class="hint">The series or table-of-contents page, not a chapter. Press Enter to load.</p>
     </div>
 
     <div class="field">
       <label class="field-label" for="firstChapterUrl">
         First chapter URL <span class="field-label-opt">(optional)</span>
       </label>
-      <input id="firstChapterUrl" type="url" placeholder="https://example.com/novel/…/chapter/1">
-      <p class="hint">Fallback discovery via "Next chapter" links, for sites where the index page does not list every chapter.</p>
+      <input id="firstChapterUrl" type="url" spellcheck="false" placeholder="https://example.com/novel/…/chapter/1" aria-describedby="firstChapterHint">
+      <p id="firstChapterHint" class="hint">Fallback discovery via "Next chapter" links, for sites where the index page does not list every chapter.</p>
     </div>
 
 
@@ -146,7 +147,7 @@
             <path d="M21 15l-5-5L5 21"/>
           </svg>
         </span>
-        <img id="coverPreview" alt="Cover" hidden>
+        <img id="coverPreview" alt="" hidden>
       </div>
       <div class="book-meta">
         <h2 id="bookTitle"></h2>
@@ -158,7 +159,7 @@
   <!-- ── Chapters ────────────────────────────────────────────────────── -->
   <section class="panel" id="chapterSection" hidden>
     <div class="panel-header">
-      <h2 class="section-label">Chapters</h2>
+      <h2 class="section-label">Chapters <span id="selectionCount" class="selection-count" role="status"></span></h2>
       <div class="toolbar">
         <button id="selectAllBtn" class="btn btn-ghost">Select all</button>
         <button id="selectNoneBtn" class="btn btn-ghost">Select none</button>
@@ -171,10 +172,12 @@
     </div>
 
     <div class="field">
-      <input id="chapterSearch" type="search" placeholder="Search by chapter name or number…">
+      <label class="visually-hidden" for="chapterSearch">Search chapters</label>
+      <input id="chapterSearch" type="search" placeholder="Search by chapter name or number…" aria-describedby="chapterListHint">
+      <p id="chapterListHint" class="hint">Shift-click a chapter to select every chapter between it and the last one you clicked.</p>
     </div>
 
-    <ul id="chapterList" class="chapter-list"></ul>
+    <ul id="chapterList" class="chapter-list" aria-label="Chapters to include"></ul>
 
     <div class="actions">
       <button id="compileBtn" class="btn btn-primary">Compile EPUB</button>
@@ -187,25 +190,29 @@
   <section class="panel" id="progressSection">
     <div class="panel-header">
       <h2 class="section-label">Console</h2>
+      <div class="toolbar">
+      <button id="copyLogBtn" type="button" class="btn btn-ghost">Copy log</button>
       <button id="stopBtn" class="btn btn-stop" disabled>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <rect x="4" y="4" width="16" height="16" rx="2"/>
         </svg>
         Stop
       </button>
+      </div>
     </div>
-    <progress id="progressBar" value="0" max="1"></progress>
+    <progress id="progressBar" aria-label="Current task progress" value="0" max="1"></progress>
     <div id="compileResult" class="compile-result" hidden>
       <div role="status" aria-atomic="true">
         <h3 id="resultTitle"></h3>
         <p id="resultCounts"></p>
       </div>
+      <button id="showFileBtn" type="button" class="btn btn-secondary" hidden>Show in folder</button>
       <details id="resultDetails" hidden>
         <summary id="resultIssueCount"></summary>
         <ul id="resultIssues"></ul>
       </details>
     </div>
-    <pre id="log"></pre>
+    <pre id="log" tabindex="0" aria-label="Activity log"></pre>
   </section>
 
 </div>

@@ -7,25 +7,31 @@
 
     --ink-0: #F2F2F7;
     --ink-1: #A8AABF;
-    --ink-2: #686A80;
+    /* ink-2 is the lightest text token: 4.8:1 on surface-high, 5.2:1 on surface. */
+    --ink-2: #8A8CA3;
     --ink-3: #3A3C52;
 
     --line-0: rgba(255, 255, 255, 0.04);
     --line-1: rgba(255, 255, 255, 0.09);
     --line-2: rgba(255, 255, 255, 0.18);
+    /* Borders that identify a control need 3:1 (WCAG 1.4.11). */
+    --line-control: #6E7090;
 
     --amber:     #F0C040;
     --amber-dk:  #C89830;
     --amber-bg:  rgba(240, 192, 64, 0.10);
     --amber-ink: #0D0E12;
 
-    --red:    #C05A56;
-    --red-bg: rgba(192, 90, 86, 0.12);
+    --red:    #E07873;
+    --red-bg: rgba(224, 120, 115, 0.12);
+    --red-ink:   #F09B97;
+    --green-ink: #9AD8AE;
+    --focus: var(--amber);
 
     --term-bg:   #09090D;
     --term-line: rgba(240, 192, 64, 0.05);
     --term-txt:  #BCB49A;
-    --term-dim:  #514D3E;
+    --term-dim:  #8A8470;
 
     --f-sans: "Helvetica Neue", HelveticaNeue, Helvetica, "Nimbus Sans L", Arial, sans-serif;
     --f-mono: "SF Mono", "Cascadia Mono", "Fira Mono", Consolas, monospace;
@@ -45,7 +51,7 @@
   /* ─── Reset ──────────────────────────────────────────────────────── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  html { color-scheme: dark; font-size: 18px; }
+  html { color-scheme: dark; font-size: 112.5%; }
 
   body {
     font-family: var(--f-sans);
@@ -89,7 +95,7 @@
     margin-left: auto;
     font-family: var(--f-mono);
     font-size: 0.6875rem;
-    color: var(--ink-3);
+    color: var(--ink-2);
     letter-spacing: 0.06em;
   }
 
@@ -172,7 +178,7 @@
     font-size: 0.875rem;
     color: var(--ink-0);
     background: var(--surface-low);
-    border: 1px solid var(--line-1);
+    border: 1px solid var(--line-control);
     border-radius: var(--r);
     padding: 9px var(--sp3);
     appearance: none;
@@ -180,11 +186,11 @@
     transition: border-color 0.1s, box-shadow 0.1s;
   }
   input:focus-visible, textarea:focus-visible {
-    outline: none;
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
     border-color: var(--amber);
-    box-shadow: 0 0 0 2px var(--amber-bg);
   }
-  input::placeholder, textarea::placeholder { color: var(--ink-3); }
+  input::placeholder, textarea::placeholder { color: var(--ink-2); }
   textarea { resize: vertical; min-height: 100px; }
   #queueUrls::placeholder, #queueHint, #queueInputFeedback { color: var(--ink-1); }
   .queue-actions { flex-wrap: wrap; }
@@ -195,7 +201,7 @@
   .queue-job:first-child { margin-top: var(--sp4); }
   .queue-job h3 { font-size: 0.9375rem; }
   .queue-job .queue-name { grid-column: 1 / -1; display: grid; gap: var(--sp2); font-size: 0.8125rem; }
-  .queue-field-error { color: #F09B97; }
+  .queue-field-error { color: var(--red-ink); }
   #galleryWorkspace .field { margin-top: var(--sp4); }
   #galleryWorkspace .hint, #galleryWorkspace .section-label { color: var(--ink-1); }
   #galleryFolder { max-width: 100%; color: var(--ink-0); font: inherit; }
@@ -231,9 +237,9 @@
   .queue-job p { margin-top: var(--sp2); }
   .queue-job .queue-url, .queue-job .queue-progress { font-size: 0.8125rem; color: var(--ink-1); }
   .queue-job .queue-progress { max-height: 5em; overflow-y: auto; }
-  .queue-job[data-status="success"] .queue-status { color: #9AD8AE; }
+  .queue-job[data-status="success"] .queue-status { color: var(--green-ink); }
   .queue-job[data-status="warning"] .queue-status, .queue-job[data-status="stopped"] .queue-status { color: var(--amber); }
-  .queue-job[data-status="failed"] .queue-status { color: #F09B97; }
+  .queue-job[data-status="failed"] .queue-status { color: var(--red-ink); }
   .queue-job details { margin: 0; }
   .queue-job summary { cursor: pointer; }
   .queue-job summary:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
@@ -246,7 +252,7 @@
     -webkit-appearance: none;
     width: 15px;
     height: 15px;
-    border: 1px solid var(--line-2);
+    border: 1px solid var(--line-control);
     border-radius: 2px;
     background: var(--surface-low);
     cursor: pointer;
@@ -270,8 +276,8 @@
     transform: rotate(-45deg);
   }
   input[type="checkbox"]:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 2px var(--amber-bg);
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
   }
 
   .hint {
@@ -324,6 +330,7 @@
     user-select: none;
     transition: color 0.1s;
   }
+  .advanced summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   .advanced summary:hover { color: var(--ink-0); }
   .advanced summary::-webkit-details-marker { display: none; }
   .advanced summary svg {
@@ -364,7 +371,7 @@
     transition: background 0.1s, border-color 0.1s, color 0.1s;
   }
   .btn:disabled { opacity: 0.38; cursor: not-allowed; pointer-events: none; }
-  .btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--amber-bg); }
+  .btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
   .btn-primary {
     background: var(--amber);
@@ -396,7 +403,7 @@
     color: var(--ink-1);
   }
   .btn-stop:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
-  .btn-stop:focus-visible { box-shadow: 0 0 0 2px var(--red-bg); }
+  .btn-stop:focus-visible { outline-color: var(--red); }
 
   /* ─── Book info ──────────────────────────────────────────────────── */
   .book-info {
@@ -497,6 +504,8 @@
     gap: var(--sp3);
     padding: 9px var(--sp4);
     cursor: pointer;
+    /* Shift-click range selection would otherwise highlight the text between rows. */
+    user-select: none;
     transition: background 0.08s;
   }
   .chapter-row-label:hover { background: var(--surface-high); }
@@ -545,7 +554,7 @@
     margin-bottom: var(--sp4);
   }
   progress::-webkit-progress-bar  { background: var(--line-1); border-radius: 1px; }
-  progress::-webkit-progress-value { background: var(--amber);  border-radius: 1px; transition: width 0.2s ease; }
+  progress::-webkit-progress-value { background: var(--amber);  border-radius: 1px; }
   progress::-moz-progress-bar     { background: var(--amber);  border-radius: 1px; }
 
   progress:indeterminate::-webkit-progress-value {
@@ -578,11 +587,12 @@
     scrollbar-width: thin;
     scrollbar-color: var(--ink-3) transparent;
   }
+  #log:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   #log::-webkit-scrollbar { width: 4px; }
   #log::-webkit-scrollbar-track { background: transparent; }
   #log::-webkit-scrollbar-thumb { background: var(--ink-3); border-radius: 2px; }
   #log:empty::before {
-    content: "Ready — load a novel to see progress.";
+    content: "Ready. Load a novel to see progress.";
     color: var(--term-dim);
     font-style: italic;
   }
@@ -597,13 +607,50 @@
   }
   .compile-result h3 { font-size: 0.9375rem; margin-bottom: var(--sp2); }
   .compile-result p { color: var(--ink-1); }
-  .compile-result[data-outcome="success"] h3 { color: #9AD8AE; }
+  .compile-result[data-outcome="success"] h3 { color: var(--green-ink); }
   .compile-result[data-outcome="warning"] h3 { color: var(--amber); }
-  .compile-result[data-outcome="failed"] h3 { color: #F09B97; }
+  .compile-result[data-outcome="failed"] h3 { color: var(--red-ink); }
   .compile-result details { margin-top: var(--sp3); }
   .compile-result summary { cursor: pointer; }
   .compile-result summary:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
   .compile-result ul { padding-inline-start: var(--sp5); max-height: 320px; overflow-y: auto; }
   .compile-result li { margin-top: var(--sp3); white-space: pre-wrap; }
+
+  #showFileBtn { margin-top: var(--sp3); }
+
+  .selection-count {
+    margin-left: var(--sp2);
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--ink-1);
+  }
+  .selection-count:empty { display: none; }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #bookInfo:not([hidden]),
+    #chapterSection:not([hidden]) { animation: none; }
+    /* Separate rules: an unknown vendor pseudo-element voids a whole selector list. */
+    progress:indeterminate::-webkit-progress-value { animation: none; width: 100%; opacity: 0.45; }
+    progress:indeterminate::-moz-progress-bar { animation: none; width: 100%; opacity: 0.45; }
+  }
+
+  /* Custom checkboxes paint state with background colors, which forced colors drop. */
+  @media (forced-colors: active) {
+    input[type="checkbox"] { border-color: CanvasText; }
+    input[type="checkbox"]:checked { background: Highlight; border-color: Highlight; }
+    input[type="checkbox"]:checked::after { border-color: HighlightText; }
+    .mode-switch .btn[aria-pressed="true"] { outline: 2px solid Highlight; }
+  }
 
   [hidden] { display: none !important; }

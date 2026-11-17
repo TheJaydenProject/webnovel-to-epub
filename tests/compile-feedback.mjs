@@ -18,14 +18,14 @@ async function run(options = {}) {
       value: "", textContent: "", disabled: false, hidden: true, dataset: {}, children: [],
       setAttribute() {}, removeAttribute() {}, addEventListener() {}, replaceChildren() { this.children = []; },
       appendChild(child) { this.children.push(child); },
-      querySelectorAll() { return (options.empty ? [] : chapters).map((c) => ({ dataset: { index: c.index } })); },
+      querySelectorAll() { return (options.empty ? [] : chapters).map((c) => ({ dataset: { index: c.index }, checked: true })); },
     };
   }
   let compiler;
   let downloads = 0;
   let filename;
   const context = vm.createContext({
-    console, URL, URLSearchParams, crypto: webcrypto, queueSnapshot, restoreQueue, history: { replaceState() {} }, location: { search: "", href: "https://extension.example/ui/main.html" },
+    console, URL, URLSearchParams, crypto: webcrypto, fetch: options.fetch, AbortSignal, queueSnapshot, restoreQueue, history: { replaceState() {} }, location: { search: "", href: "https://extension.example/ui/main.html" },
     document: {
       getElementById(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); },
       createElement: element,
@@ -80,7 +80,7 @@ async function run(options = {}) {
     coverUrl: options.badCover ? "https://example.com/cover.png" : null,
     discoveryIssues: options.discoveryIssues || [],
   };
-  vm.runInContext("state = testState; fetchImage = fetchImageStub; sleep = async () => {};", context);
+  vm.runInContext(`state = testState; ${options.realFetchImage ? "" : "fetchImage = fetchImageStub;"} sleep = async () => {};`, context);
   await vm.runInContext("runCompile()", context);
   assert.equal(listeners.size, 0, "download listener must be removed");
   assert.equal(elements.get("loadBtn").disabled, false);
@@ -89,7 +89,9 @@ async function run(options = {}) {
     title: elements.get("resultTitle").textContent,
     counts: elements.get("resultCounts").textContent,
     issues: elements.get("resultIssues").children.map((li) => li.textContent).join("\n"),
-    compiler, downloads, filename,
+    compiler, downloads, filename, context,
+    selection: elements.get("selectionCount").textContent,
+    compileLabel: elements.get("compileBtn").textContent,
   };
 }
 
@@ -145,4 +147,31 @@ assert.match(interrupted.issues, /Download interrupted: FILE_FAILED/);
 const missingSource = await run({ missingImageSource: 50 });
 assert.equal(missingSource.outcome, "warning");
 assert.match(missingSource.issues, /Image omitted from Chapter 50: Title 50:.*without a source/);
-console.log("Compile feedback checks passed (16 scenarios).");
+
+// Hotlink protection answering 200 with HTML must be reported, not packaged as a .jpg.
+const htmlResponse = async () => ({ ok: true, status: 200, headers: { get: () => "text/html; charset=utf-8" }, blob: async () => new Blob(["<html>"]) });
+const hotlinked = await run({ realFetchImage: true, fetch: htmlResponse });
+assert.equal(hotlinked.outcome, "warning");
+assert.match(hotlinked.issues, /Not an image \(text\/html\)/);
+assert.match(hotlinked.counts, /0 of 3 chapter images/);
+
+assert.equal(clean.selection, "3 of 3 selected");
+assert.equal(clean.compileLabel, "Compile EPUB (3 chapters)");
+
+const name = (title) => vm.runInContext(`sanitizeFilename(${JSON.stringify(title)})`, clean.context);
+assert.equal(name("Book: One?"), "Book_ One_");
+assert.equal(name("  ..Trailing dots... "), "Trailing dots");
+assert.equal(name("Tab\tand\nnewline"), "Tab and newline");
+assert.equal(name("CON"), "CON_");
+assert.equal(name("..."), "book");
+assert.equal(name("x".repeat(300)).length, 150);
+
+// A tab that finished loading before the listener attached must not wait out the timeout.
+Object.assign(clean.context, { setTimeout, clearTimeout });
+clean.context.browser.tabs = {
+  onUpdated: { addListener() {}, removeListener() {} },
+  get: async () => ({ status: "complete", url: "https://example.com/novel" }),
+};
+await vm.runInContext("waitForTabLoad(1, 50)", clean.context);
+
+console.log("Compile feedback checks passed (21 scenarios).");

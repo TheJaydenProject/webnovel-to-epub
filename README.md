@@ -76,10 +76,10 @@ codebase is not available before Chrome 148.
 2. Click the extension icon -- the TOC URL fills in automatically
 3. Optionally fill in a **First chapter URL** if the TOC does not list every chapter; the extension will walk "Next chapter" links from there
 4. Click **Load chapters**
-5. Use **Select all / Select none**, the **From / To** range, or the search box to pick what you want
+5. Use **Select all / Select none**, the **From / To** range, or the search box to pick what you want. While searching, the bulk buttons act only on the matching chapters. Shift-click a chapter to select everything between it and the last one you clicked.
 6. Click **Compile EPUB** (or let auto-compile handle it)
 
-The EPUB downloads automatically when done.
+The EPUB downloads automatically when done. Use **Show in folder** to find it, and **Copy log** to grab the full console output for a bug report. The tab title shows progress, so you can watch a run from another tab. The browser asks before closing the dashboard while a run is in progress. Your fetching toggles are remembered between sessions.
 
 ### Queue multiple novels
 
@@ -171,7 +171,7 @@ Sites are configured in `core/ParserRegistry.js`. All of these have been tested 
 
 ## Roadmap
 
-- [ ] Chrome / Chromium support
+- [x] Chrome / Chromium support
 - [ ] More site parsers
 
 See the [open issues](https://github.com/TheJaydenProject/webnovel-to-epub/issues) for a full list of proposed features and known issues.

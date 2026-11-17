@@ -64,7 +64,7 @@ const els = {
   queueInputPanel: document.getElementById("queueInputPanel"),
 };
 
-for (const id of ["galleryModeBtn", "galleryWorkspace", "galleryUrl", "galleryFolder", "galleryFolderStatus", "galleryEmptyLibrary", "gallerySkipHiatus", "galleryOnlyFree", "galleryOnlyCompleted", "galleryScanBtn", "galleryStopBtn", "galleryStatus", "galleryProgress", "galleryReport", "galleryResults"]) {
+for (const id of ["copyLogBtn", "showFileBtn", "selectionCount", "galleryModeBtn", "galleryWorkspace", "galleryUrl", "galleryFolder", "galleryFolderStatus", "galleryEmptyLibrary", "gallerySkipHiatus", "galleryOnlyFree", "galleryOnlyCompleted", "galleryScanBtn", "galleryStopBtn", "galleryStatus", "galleryProgress", "galleryReport", "galleryResults"]) {
   els[id] = document.getElementById(id);
 }
 
@@ -76,6 +76,7 @@ const EXT_FOR_MIME = {
   "image/gif": "gif",
   "image/webp": "webp",
   "image/svg+xml": "svg",
+  "image/avif": "avif",
 };
 
 let state = {
@@ -307,10 +308,88 @@ els.wuxiaAutoFillBtn.addEventListener("click", async () => {
   }
 });
 
+// Appending to textContent re-serializes the whole log on every line, which
+// gets slow on multi-thousand-chapter runs. Show a bounded tail; keep the
+// full run for Copy log so bug reports stay complete.
+const LOG_DISPLAY_LINES = 1000;
+const LOG_KEEP_LINES = 50000;
+let logLines = [];
+
 function log(message) {
-  els.log.textContent += message + "\n";
+  logLines.push(message);
+  if (logLines.length > LOG_KEEP_LINES) logLines = logLines.slice(-LOG_KEEP_LINES);
+  els.log.textContent = logLines.slice(-LOG_DISPLAY_LINES).join("\n") + "\n";
   els.log.scrollTop = els.log.scrollHeight;
   if (activeQueueJob) activeQueueJob.ui.progress.textContent = message;
+}
+
+function clearLog() {
+  logLines = [];
+  els.log.textContent = "";
+}
+
+els.copyLogBtn.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(logLines.join("\n"));
+    els.copyLogBtn.textContent = "Copied";
+  } catch (err) {
+    els.copyLogBtn.textContent = "Copy failed";
+    console.error("[copyLog]", err);
+  }
+  setTimeout(() => { els.copyLogBtn.textContent = "Copy log"; }, 1500);
+});
+
+const APP_TITLE = "Web Novel to EPUB";
+// Mirrors progress in the tab title so a run can be watched from other tabs.
+function setTabStatus(text) {
+  document.title = text ? `${text} · ${APP_TITLE}` : APP_TITLE;
+}
+
+// Closing the dashboard mid-run discards everything fetched so far.
+globalThis.addEventListener?.("beforeunload", (event) => {
+  if (!operationRunning) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
+
+// Fetching toggles are remembered between sessions.
+browser.storage.local.get("settings").then(({ settings }) => {
+  if (typeof settings?.useTabFetch === "boolean") els.useTabFetch.checked = settings.useTabFetch;
+  if (typeof settings?.autoCompile === "boolean") els.autoCompile.checked = settings.autoCompile;
+}).catch((err) => console.error("[settings]", err));
+for (const toggle of [els.useTabFetch, els.autoCompile]) {
+  toggle.addEventListener("change", () => {
+    browser.storage.local.set({ settings: { useTabFetch: els.useTabFetch.checked, autoCompile: els.autoCompile.checked } })
+      .catch((err) => log(`Could not save settings: ${err.message}`));
+  });
+}
+
+for (const input of [els.tocUrl, els.firstChapterUrl]) {
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !operationRunning) els.loadBtn.click();
+  });
+}
+for (const input of [els.rangeFrom, els.rangeTo]) {
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") els.applyRangeBtn.click();
+  });
+}
+
+els.coverPreview.addEventListener("error", () => { els.coverPreview.hidden = true; });
+
+let lastDownloadId = null;
+els.showFileBtn.addEventListener("click", () => {
+  if (lastDownloadId !== null) browser.downloads.show(lastDownloadId);
+});
+
+function showLoadError(message) {
+  els.compileResult.dataset.outcome = "failed";
+  els.compileResult.hidden = false;
+  els.resultTitle.textContent = "Could not load this novel";
+  els.resultCounts.textContent = message;
+  els.resultDetails.hidden = true;
+  els.showFileBtn.hidden = true;
+  setTabStatus("Failed");
 }
 
 function setBusy(busy) {
@@ -326,6 +405,7 @@ function setBusy(busy) {
   els.chapterList.querySelectorAll("input[type=checkbox]").forEach((cb) => { cb.disabled = busy; });
   for (const job of novelQueue) job.ui.retry.disabled = busy || !!job.firstChapterError;
   updateQueueSummary();
+  updateSelectionCount();
 }
 
 function updateQueueSummary() {
@@ -542,6 +622,7 @@ async function runQueue({ onlyJobs = null } = {}) {
     activeQueueJob = null;
     queueRunning = false;
     els.queueActivity.hidden = true;
+    setTabStatus(queueStopRequested ? "Queue paused" : "Queue finished");
     pageCache.clear();
     imageCache.clear();
     els.stopBtn.disabled = true;
@@ -680,8 +761,18 @@ function politeDelay(config, fetchState) {
   return (base + Math.random() * jitter) * multiplier;
 }
 
+// downloads.download rejects names Windows cannot store, which would throw
+// away a finished EPUB at the very last step, so clean them up front.
 function sanitizeFilename(name) {
-  return name.replace(/[\\/:*?"<>|]+/g, "_").trim() || "book";
+  let clean = name
+    .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    .replace(/[\\/:*?"<>|~]+/g, "_")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s.]+|[\s.]+$/g, "");
+  // Leave room for ".epub" and a browser "(1)" suffix within the 255-char limit.
+  clean = clean.slice(0, 150).replace(/[\s.]+$/, "");
+  if (/^(con|prn|aux|nul|com\d|lpt\d)$/i.test(clean)) clean = `${clean}_`;
+  return clean || "book";
 }
 
 async function fetchImage(url, fetchState) {
@@ -698,8 +789,13 @@ async function fetchImage(url, fetchState) {
   }
   if (res.status === 429 || res.status === 503) bumpThrottle(fetchState, res.status);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const mime = res.headers.get("content-type")?.split(";")[0].trim().toLowerCase() || "";
+  // Hotlink protection often answers 200 with an HTML page; packaging that
+  // as a .jpg ships a broken image instead of reporting it.
+  if (mime && !mime.startsWith("image/") && mime !== "application/octet-stream") {
+    throw new Error(`Not an image (${mime})`);
+  }
   const blob = await res.blob();
-  const mime = res.headers.get("content-type")?.split(";")[0];
   const ext = EXT_FOR_MIME[mime] || "jpg";
   const result = { blob, ext };
   imageCache.set(url, result);
@@ -816,6 +912,11 @@ function waitForTabLoad(tabId, timeoutMs = 30000) {
       }
     }
     browser.tabs.onUpdated.addListener(listener);
+    // A cached page can finish loading before the listener is attached,
+    // which would otherwise sit out the full timeout and fail the fetch.
+    browser.tabs.get(tabId).then((tab) => {
+      if (tab.status === "complete" && tab.url && tab.url !== "about:blank") listener(tabId, { status: "complete" }, tab);
+    }).catch(() => {});
   });
 }
 
@@ -870,17 +971,25 @@ els.loadBtn.addEventListener("click", async () => {
   if (operationRunning) return;
   const tocUrl = els.tocUrl.value.trim();
   const firstChapterUrl = els.firstChapterUrl.value.trim();
-  if (!tocUrl && !firstChapterUrl) return;
+  if (!tocUrl && !firstChapterUrl) {
+    showLoadError("Paste the novel's index URL first.");
+    els.tocUrl.focus();
+    return;
+  }
   setBusy(true);
   cancelRequested = false;
   els.stopBtn.disabled = false;
+  setTabStatus("Loading");
   try {
     await loadNovel(tocUrl, firstChapterUrl);
     if (els.autoCompile.checked && state.chapters.length > 0 && !cancelRequested) {
       await runCompile({ queued: true });
+    } else {
+      setTabStatus(state.chapters.length ? `${state.chapters.length} chapters` : "");
     }
   } catch (err) {
     log(`Load failed: ${err.message}`);
+    showLoadError(err.message);
   } finally {
     setBusy(false);
     els.stopBtn.disabled = true;
@@ -893,7 +1002,7 @@ async function loadNovel(tocUrl, firstChapterUrl) {
   els.bookInfo.hidden = true;
   els.chapterSection.hidden = true;
   els.compileResult.hidden = true;
-  els.log.textContent = "";
+  clearLog();
   if (tocUrl) tocUrl = validateNovelUrl(tocUrl);
   if (firstChapterUrl) firstChapterUrl = validateNovelUrl(firstChapterUrl);
   const config = getConfigForUrl(firstChapterUrl || tocUrl);
@@ -937,30 +1046,43 @@ async function loadNovel(tocUrl, firstChapterUrl) {
   state.sourceUrl = tocUrl;
 }
 
+// Title, author, and cover from an index page, shared by every discovery path.
+function readBookDetails(html, doc, url, config) {
+  const titleEl = doc.querySelector(config.toc.titleSelector);
+  let novelTitle = (titleEl ? titleEl.getAttribute(config.toc.titleAttr) || titleEl.textContent : "").trim();
+  if (config.toc.titleSuffixRegex) novelTitle = novelTitle.replace(config.toc.titleSuffixRegex, "").trim();
+
+  const coverSrc = doc.querySelector(config.toc.coverSelector)?.getAttribute(config.toc.coverAttr)?.trim();
+  let coverUrl = null;
+  try {
+    if (coverSrc) coverUrl = new URL(coverSrc, url).href;
+  } catch {
+    // Malformed cover URL: compile without a cover rather than failing the load.
+  }
+
+  const author = config.toc.authorSourceRegex?.exec(html)?.[1]?.trim() || "Unknown";
+  return { novelTitle: novelTitle || "Untitled", author, coverUrl };
+}
+
+// Best-effort metadata for API and next-link discovery: a failure is
+// recorded as a warning instead of aborting the load.
+async function tryReadBookDetails(tocUrl, config, discoveryIssues) {
+  try {
+    const html = await fetchPage(tocUrl);
+    return readBookDetails(html, new DOMParser().parseFromString(html, "text/html"), tocUrl, config);
+  } catch (err) {
+    log(`Warning: could not load index URL for book details (${err.message}).`);
+    discoveryIssues.push(`Could not load title, author, or cover details from ${tocUrl}: ${err.message}`);
+    return { novelTitle: "Untitled", author: "Unknown", coverUrl: null };
+  }
+}
+
 async function loadToc(url, config) {
-  els.log.textContent = "";
+  clearLog();
 
   const html = await fetchPage(url);
   const doc = new DOMParser().parseFromString(html, "text/html");
-
-  const titleEl = doc.querySelector(config.toc.titleSelector);
-  let novelTitle = (
-    titleEl ? titleEl.getAttribute(config.toc.titleAttr) || titleEl.textContent : "Untitled"
-  ).trim();
-  if (config.toc.titleSuffixRegex) {
-    novelTitle = novelTitle.replace(config.toc.titleSuffixRegex, "").trim();
-  }
-
-  const coverEl = doc.querySelector(config.toc.coverSelector);
-  const coverUrl = coverEl
-    ? new URL(coverEl.getAttribute(config.toc.coverAttr), url).href
-    : null;
-
-  let author = "Unknown";
-  if (config.toc.authorSourceRegex) {
-    const m = config.toc.authorSourceRegex.exec(html);
-    if (m) author = m[1];
-  }
+  const { novelTitle, author, coverUrl } = readBookDetails(html, doc, url, config);
 
   const linkEls = Array.from(doc.querySelectorAll(config.toc.linksSelector));
   const chapters = linkEls.map((a, i) => {
@@ -992,38 +1114,10 @@ async function loadToc(url, config) {
 // session does without relying on cookies. Book metadata (title/cover/
 // author) is still read from the TOC page, same as `loadToc`.
 async function loadViaWuxiaApi(tocUrl, novelSlug, token, config) {
-  let novelTitle = "Untitled";
-  let author = "Unknown";
-  let coverUrl = null;
   const discoveryIssues = [];
+  const { novelTitle, author, coverUrl } = await tryReadBookDetails(tocUrl, config, discoveryIssues);
 
-  try {
-    const html = await fetchPage(tocUrl);
-    const doc = new DOMParser().parseFromString(html, "text/html");
-
-    const titleEl = doc.querySelector(config.toc.titleSelector);
-    if (titleEl) {
-      novelTitle = (titleEl.getAttribute(config.toc.titleAttr) || titleEl.textContent).trim();
-      if (config.toc.titleSuffixRegex) {
-        novelTitle = novelTitle.replace(config.toc.titleSuffixRegex, "").trim();
-      }
-    }
-
-    const coverEl = doc.querySelector(config.toc.coverSelector);
-    if (coverEl) {
-      coverUrl = new URL(coverEl.getAttribute(config.toc.coverAttr), tocUrl).href;
-    }
-
-    if (config.toc.authorSourceRegex) {
-      const m = config.toc.authorSourceRegex.exec(html);
-      if (m) author = m[1];
-    }
-  } catch (err) {
-    log(`Warning: could not load index URL for book details (${err.message}).`);
-    discoveryIssues.push(`Could not load title, author, or cover details from ${tocUrl}: ${err.message}`);
-  }
-
-  els.log.textContent = "";
+  clearLog();
   els.progressBar.removeAttribute("value");
   els.stopBtn.disabled = false;
 
@@ -1058,6 +1152,7 @@ function populateBookUi() {
   els.bookTitle.textContent = novelTitle;
   els.bookAuthor.textContent = `by ${author}`;
   if (coverUrl) {
+    els.coverPreview.alt = `Cover of ${novelTitle}`;
     els.coverPreview.src = coverUrl;
     els.coverPreview.hidden = false;
   } else {
@@ -1082,42 +1177,12 @@ function populateBookUi() {
 // URL (if provided) is used only for best-effort title/author/cover
 // metadata - failures there don't abort discovery.
 async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
-  let novelTitle = "Untitled";
-  let author = "Unknown";
-  let coverUrl = null;
   const discoveryIssues = [];
+  const { novelTitle, author, coverUrl } = tocUrl
+    ? await tryReadBookDetails(tocUrl, config, discoveryIssues)
+    : { novelTitle: "Untitled", author: "Unknown", coverUrl: null };
 
-  if (tocUrl) {
-    try {
-      const html = await fetchPage(tocUrl);
-      const doc = new DOMParser().parseFromString(html, "text/html");
-
-      const titleEl = doc.querySelector(config.toc.titleSelector);
-      if (titleEl) {
-        novelTitle = (
-          titleEl.getAttribute(config.toc.titleAttr) || titleEl.textContent
-        ).trim();
-        if (config.toc.titleSuffixRegex) {
-          novelTitle = novelTitle.replace(config.toc.titleSuffixRegex, "").trim();
-        }
-      }
-
-      const coverEl = doc.querySelector(config.toc.coverSelector);
-      if (coverEl) {
-        coverUrl = new URL(coverEl.getAttribute(config.toc.coverAttr), tocUrl).href;
-      }
-
-      if (config.toc.authorSourceRegex) {
-        const m = config.toc.authorSourceRegex.exec(html);
-        if (m) author = m[1];
-      }
-    } catch (err) {
-      log(`Warning: could not load index URL for book details (${err.message}).`);
-      discoveryIssues.push(`Could not load title, author, or cover details from ${tocUrl}: ${err.message}`);
-    }
-  }
-
-  els.log.textContent = "";
+  clearLog();
   els.progressBar.removeAttribute("value"); // indeterminate while discovering
   els.stopBtn.disabled = false;
 
@@ -1246,6 +1311,7 @@ function renderChapterList() {
     li.appendChild(label);
     els.chapterList.appendChild(li);
   }
+  lastToggledRow = null;
   filterChapterList();
 }
 
@@ -1258,14 +1324,44 @@ function filterChapterList() {
   for (const li of els.chapterList.children) {
     li.hidden = query !== "" && !li.dataset.label.includes(query) && !li.dataset.index.includes(query);
   }
+  // While searching, bulk selection only touches the matches on screen.
+  els.selectAllBtn.textContent = query ? "Select shown" : "Select all";
+  els.selectNoneBtn.textContent = query ? "Clear shown" : "Select none";
+  updateSelectionCount();
+}
+
+function updateSelectionCount() {
+  const boxes = Array.from(els.chapterList.querySelectorAll("input[type=checkbox]"));
+  const selected = boxes.filter((cb) => cb.checked).length;
+  els.selectionCount.textContent = boxes.length ? `${selected} of ${boxes.length} selected` : "";
+  els.compileBtn.textContent = selected ? `Compile EPUB (${selected} chapter${selected === 1 ? "" : "s"})` : "Compile EPUB";
+  els.compileBtn.disabled = operationRunning || selected === 0;
 }
 
 els.selectAllBtn.addEventListener("click", () => setAllChecked(true));
 els.selectNoneBtn.addEventListener("click", () => setAllChecked(false));
 
 function setAllChecked(value) {
-  els.chapterList.querySelectorAll("input[type=checkbox]").forEach((cb) => (cb.checked = value));
+  for (const li of els.chapterList.children) {
+    if (!li.hidden) li.querySelector("input[type=checkbox]").checked = value;
+  }
+  updateSelectionCount();
 }
+
+// Shift-click selects every visible row between the last toggled row and this one.
+let lastToggledRow = null;
+els.chapterList.addEventListener("click", (event) => {
+  const checkbox = event.target;
+  if (checkbox?.type !== "checkbox") return;
+  const row = checkbox.closest("li");
+  const rows = Array.from(els.chapterList.children).filter((li) => !li.hidden);
+  if (event.shiftKey && lastToggledRow && rows.includes(lastToggledRow)) {
+    const [start, end] = [rows.indexOf(lastToggledRow), rows.indexOf(row)].sort((a, b) => a - b);
+    for (const li of rows.slice(start, end + 1)) li.querySelector("input[type=checkbox]").checked = checkbox.checked;
+  }
+  lastToggledRow = row;
+  updateSelectionCount();
+});
 
 els.applyRangeBtn.addEventListener("click", () => {
   const from = Number(els.rangeFrom.value);
@@ -1274,6 +1370,7 @@ els.applyRangeBtn.addEventListener("click", () => {
     const idx = Number(cb.dataset.index);
     cb.checked = idx >= from && idx <= to;
   });
+  updateSelectionCount();
 });
 
 els.compileBtn.addEventListener("click", runCompile);
@@ -1282,10 +1379,11 @@ async function runCompile({ queued = false } = {}) {
   if (operationRunning && !queued) return;
   setBusy(true);
   els.compileResult.hidden = true;
-  els.log.textContent = "";
+  clearLog();
   if (!queued) cancelRequested = false;
   els.stopBtn.disabled = false;
   const report = newCompileReport();
+  lastDownloadId = null;
   try {
     await compile(report);
   } catch (err) {
@@ -1314,8 +1412,12 @@ function reportCounts(report) {
 
 function showCompileResult(report) {
   const incomplete = report.stopped || report.compiled < report.selected;
-  els.compileResult.dataset.outcome = reportOutcome(report);
+  const outcome = reportOutcome(report);
+  els.compileResult.dataset.outcome = outcome;
   els.compileResult.hidden = false;
+  // The queue lists each novel's own file, so this only applies to single runs.
+  els.showFileBtn.hidden = !report.downloaded || queueRunning || lastDownloadId === null;
+  if (!queueRunning) setTabStatus({ success: "Done", warning: "Done with warnings", failed: "Failed" }[outcome]);
   els.resultTitle.textContent = !report.downloaded
     ? "EPUB not completed"
     : incomplete ? "Incomplete EPUB downloaded"
@@ -1464,6 +1566,8 @@ async function compile(report) {
     }
 
     els.progressBar.value = i + 1;
+    const novelNumber = activeQueueJob ? ` · novel ${novelQueue.indexOf(activeQueueJob) + 1}/${novelQueue.length}` : "";
+    setTabStatus(`${Math.round(((i + 1) / selected.length) * 100)}%${novelNumber}`);
     updateNovelProgress(`Processed ${i + 1} of ${selected.length} chapters`, i + 1, selected.length);
 
     if (i < selected.length - 1) {
@@ -1553,7 +1657,7 @@ async function compile(report) {
   try {
     log("Saving EPUB. Waiting for the browser to confirm the download...");
     updateNovelProgress("Saving EPUB. Waiting for the browser to confirm the download...");
-    await downloadEpub(objectUrl, filename);
+    lastDownloadId = await downloadEpub(objectUrl, filename);
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
@@ -1589,4 +1693,5 @@ async function downloadEpub(url, filename) {
   } finally {
     browser.downloads.onChanged.removeListener(onChanged);
   }
+  return downloadId;
 }
