@@ -145,11 +145,13 @@ async function runSite(context, extensionId, config) {
       return result;
     }
     result.found = await dashboard.$$eval("#chapterList input[type=checkbox]", (boxes) => boxes.length);
-    if (result.found < CHAPTERS) result.loadLog = log.split("\n").slice(-12).join("\n");
+    if (result.found < CHAPTERS + (config.sampleUrls.skipChapters ?? 0)) result.loadLog = log.split("\n").slice(-12).join("\n");
 
     await dashboard.click("#selectNoneBtn");
     const boxes = await dashboard.$$("#chapterList input[type=checkbox]");
-    for (const box of boxes.slice(0, CHAPTERS)) await box.click();
+    // Some samples open with a short announcement post that is not a chapter.
+    const skip = config.sampleUrls.skipChapters ?? 0;
+    for (const box of boxes.slice(skip, skip + CHAPTERS)) await box.click();
     await dashboard.click("#compileBtn");
     log = await watch("compile");
     if (result.blocked) {
@@ -208,6 +210,8 @@ async function runSite(context, extensionId, config) {
     }
     // Stopping link-walking after enough chapters is this harness's own doing.
     if (result.walkStopped) result.issues = result.issues.filter((issue) => !/Chapter discovery was stopped/.test(issue));
+    // This profile is signed out, so members-only posts are expected to be left out.
+    result.issues = result.issues.filter((issue) => !/left out because this account cannot open them/.test(issue));
     const clean = result.outcome === "success" || (result.outcome === "warning" && !result.issues.length);
     const thin = result.chapters.filter((c) => c.words < 150);
     result.status = clean && result.chapters.length === CHAPTERS && !thin.length ? "pass"

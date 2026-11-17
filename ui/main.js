@@ -7,6 +7,7 @@ import * as WuxiaworldApi from "../core/WuxiaworldApi.js";
 import { parseQueueInput, validateNovelUrl } from "../core/QueueInput.js";
 import { queueSnapshot, restoreQueue } from "../core/QueueState.js";
 import { readMistmintPage } from "../core/MistmintHaven.js";
+import * as Patreon from "../core/Patreon.js";
 import { readDreamyPage } from "../core/DreamyPage.js";
 import { readRenderedPage } from "../core/RenderedPage.js";
 import { SiteRateLimiter, parseRetryAfter } from "../core/RateLimiter.js";
@@ -920,6 +921,59 @@ async function fetchPage(url) {
   return fetchFast(url);
 }
 
+// Patreon's login cookie is not sent with the extension's own cross-site
+// requests, so with browser-tab fetching on, API calls run inside a
+// patreon.com tab, where they are same-origin and carry the user's session.
+// With it off they go out directly and only see public posts.
+let patreonTab = null;
+
+async function patreonGetJson(url) {
+  const config = getConfigForUrl(url);
+  if (!els.useTabFetch.checked) {
+    const res = await fetchWithRetry(url, { credentials: "include", headers: { accept: "application/vnd.api+json" } });
+    if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+    return res.json();
+  }
+  for (let pauses = 0; ; pauses++) {
+    const { status, text, retryAfter } = await fetchInPatreonTab(url);
+    if ((status === 429 || status === 503) && pauses < MAX_THROTTLE_PAUSES && await coolDown(config, parseRetryAfter(retryAfter))) continue;
+    if (status !== 200) throw Object.assign(new Error(`HTTP ${status}`), { status });
+    recordSuccess(config);
+    return JSON.parse(text);
+  }
+}
+
+async function fetchInPatreonTab(url) {
+  const current = patreonTab && await browser.tabs.get(patreonTab.id).catch(() => null);
+  if (!current || !/^https:\/\/([^/]+\.)?patreon\.com\//.test(current.url || "")) {
+    const [existing] = await browser.tabs.query({ url: "*://*.patreon.com/*" });
+    if (existing) {
+      patreonTab = { id: existing.id, opened: false };
+    } else {
+      const tab = await browser.tabs.create({ url: "https://www.patreon.com/", active: false });
+      patreonTab = { id: tab.id, opened: true };
+      await waitForTabLoad(tab.id);
+    }
+  }
+  const [result] = await browser.scripting.executeScript({
+    target: { tabId: patreonTab.id },
+    args: [url],
+    func: async (apiUrl) => {
+      // Firefox content scripts need content.fetch to send the page's own cookies.
+      const pageFetch = globalThis.content?.fetch ?? fetch;
+      const res = await pageFetch(apiUrl, { credentials: "include", headers: { accept: "application/vnd.api+json" } });
+      return { status: res.status, text: await res.text(), retryAfter: res.headers.get("retry-after") };
+    },
+  });
+  if (!result?.result) throw new Error("could not run the request in the patreon.com tab");
+  return result.result;
+}
+
+async function releasePatreonTab() {
+  if (patreonTab?.opened) await browser.tabs.remove(patreonTab.id).catch(() => {});
+  patreonTab = null;
+}
+
 // Locates a chapter's content container: the configured selector if it
 // matches, otherwise ContentDetector's auto-detected best guess. Used for
 // the generic fallback config (bodySelector: null), and as a safety net if
@@ -1202,6 +1256,14 @@ async function loadNovel(tocUrl, firstChapterUrl) {
     tocUrl = index.href;
     log("Mistmint Haven requires browser rendering. Loading its Free and Premium chapter lists in a background tab.");
   }
+  if (config.id === "patreon") {
+    await loadViaPatreon(tocUrl || firstChapterUrl, config);
+    if (!cancelRequested && !state.chapters.length) {
+      throw new Error("No posts you can read were found. Sign in to Patreon in this browser with a membership that includes them, then retry.");
+    }
+    state.sourceUrl = tocUrl || firstChapterUrl;
+    return;
+  }
   if (config.id === "generic" && !firstChapterUrl) {
     throw new Error('This site needs a first chapter URL. Fill in the "First chapter URL" field for this novel, then retry.');
   }
@@ -1368,6 +1430,51 @@ async function loadViaWuxiaApi(tocUrl, novelSlug, token, config) {
     : `Found ${chapters.length} chapter(s). Not signed in to WuxiaWorld, so chapters are read from the site and locked ones will be reported.`);
 
   state = { config, novelTitle, author, coverUrl, chapters, novelSlug, apiToken: token, discoveryIssues };
+  populateBookUi();
+}
+
+// Patreon novels are collections (or a creator's whole feed), read from the
+// JSON API. Posts the account cannot open are left out of the list and
+// counted, so a compile is not a wall of "locked" errors.
+async function loadViaPatreon(url, config) {
+  const target = Patreon.parsePatreonUrl(url);
+  if (target?.postId) {
+    throw new Error("This is a single Patreon post. Paste the collection that holds the novel (patreon.com/collection/...) or the creator's page instead.");
+  }
+  if (!target) throw new Error("Use a Patreon collection URL (patreon.com/collection/...) or a creator's page (patreon.com/name).");
+
+  els.progressBar.removeAttribute("value");
+  els.stopBtn.disabled = false;
+  let novel;
+  try {
+    if (els.useTabFetch.checked) log("Reading Patreon through a patreon.com tab, so posts unlocked by your membership are included.");
+    else log('Browser-tab fetching is off, so only public Patreon posts can be read. Turn on "Use browser tab for fetching" to include posts from your membership.');
+    if (target.collectionId) {
+      log("Fetching collection from Patreon...");
+      novel = await Patreon.loadCollection(patreonGetJson, target.collectionId);
+    } else {
+      log(`Fetching every post by ${target.vanity} from Patreon...`);
+      novel = await Patreon.loadCreator(patreonGetJson, target.vanity);
+      if (novel.collections.length) {
+        log("This creator groups posts into collections. To download one novel, paste its collection URL instead:");
+        for (const c of novel.collections) log(`  ${c.title}${c.count ? ` (${c.count} posts)` : ""}: ${c.url}`);
+      }
+    }
+  } finally {
+    await releasePatreonTab();
+  }
+
+  const readable = novel.chapters.filter((c) => !c.locked);
+  const lockedCount = novel.chapters.length - readable.length;
+  readable.forEach((c, i) => { c.index = i + 1; });
+  els.progressBar.value = 0;
+  els.stopBtn.disabled = true;
+  log(`Found ${readable.length} post(s) you can read${lockedCount ? `. ${lockedCount} locked post(s) were left out; they need a membership tier that includes them` : ""}.`);
+
+  const discoveryIssues = lockedCount
+    ? [`${lockedCount} Patreon post(s) were left out because this account cannot open them. Sign in with a membership tier that includes them, then reload the novel.`]
+    : [];
+  state = { config, novelTitle: novel.novelTitle, author: novel.author, coverUrl: novel.coverUrl, chapters: readable, discoveryIssues };
   populateBookUi();
 }
 
@@ -1635,6 +1742,7 @@ async function runCompile({ queued = false } = {}) {
     log(`Fatal error: ${err.message}`);
     report.issues.push(`EPUB could not be completed: ${err.message}`);
   } finally {
+    await releasePatreonTab();
     showCompileResult(report);
     if (!queueRunning) setBusy(false);
     els.stopBtn.disabled = true;
@@ -1745,7 +1853,14 @@ async function compile(report) {
     currentChapter = `Chapter ${chapter.index}: ${chapter.label}`;
     chapterImages = new Set();
     try {
-      if (chapter.chapterId !== undefined) {
+      if (chapter.patreonPostId) {
+        const post = await Patreon.loadPostHtml(patreonGetJson, chapter.patreonPostId);
+        if (post.locked) throw new Error("chapter is locked. Log in to Patreon in this browser with a membership that includes this post, then retry");
+        const doc = new DOMParser().parseFromString(`<div id="root">${post.html}</div>`, "text/html");
+        const fragment = sanitizeChapterContent(doc.querySelector("#root"), doc, config, chapter.href, registerImage, reportImageError);
+        if (!fragment.trim()) throw new Error("chapter content is empty");
+        compiler.addChapter(chapter.label, fragment);
+      } else if (chapter.chapterId !== undefined) {
         // WuxiaWorld API-sourced chapter: the API returns just the chapter's
         // HTML fragment (no full page to query a body selector from).
         const chapterHtml = await WuxiaworldApi.getChapter(chapter.chapterId, state.apiToken);

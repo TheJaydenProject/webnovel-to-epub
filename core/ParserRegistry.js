@@ -145,6 +145,22 @@ export const SITE_CONFIGS = [
     fetchJitterRange: 600,
   },
   {
+    // Read through Patreon's JSON API (core/Patreon.js), not by scraping pages:
+    // posts render client-side. The toc/content fields are unused.
+    id: "patreon",
+    hostnamePattern: /(^|\.)patreon\.com$/,
+    sampleUrls: {
+      toc: "https://www.patreon.com/collection/2377730",
+      skipChapters: 1,
+    },
+    toc: { titleSelector: "title", linksSelector: "a[href*='/posts/']" },
+    content: { bodySelector: null },
+    siteName: "Patreon",
+    elementBlacklist: [...DEFAULT_ELEMENT_BLACKLIST],
+    fetchIntervalBase: 1500,
+    fetchJitterRange: 1000,
+  },
+  {
     id: "wuxiaworld",
     hostnamePattern: /(^|\.)wuxiaworld\.com$/,
     sampleUrls: {

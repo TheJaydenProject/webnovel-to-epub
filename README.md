@@ -72,7 +72,7 @@ A browser extension for downloading web novels as EPUB files. Give it a TOC page
 - Auto-compile is on by default, so there is no need to click Compile after chapters finish loading
 - A Stop button lets you bail out early and still get an EPUB with whatever was fetched
 
-32 sites have dedicated support, and any other site gets best-effort auto-detection of chapter text and "Next chapter" links. More sites are added on request.
+33 sites have dedicated support, and any other site gets best-effort auto-detection of chapter text and "Next chapter" links. More sites are added on request.
 
 ### Built With
 
@@ -164,6 +164,7 @@ The scan reports existing books, queued books, Hiatus titles, premium titles, un
 - **Verification checks ("Just a moment...", CAPTCHAs)**: Cloudflare's automatic check usually finishes by itself, so the extension first waits quietly for up to 15 seconds. If the check needs a person, it brings that tab forward. Complete the check yourself and the run continues automatically; the clearance usually covers the rest of the novel. It waits up to 5 minutes, and Stop cancels the wait. The extension never tries to solve or bypass these checks.
 - **Copy-protected readers**: browser-tab fetching reads chapter text rendered inside shadow DOM, and waits for late-loading text instead of reading an empty page.
 - **Flaky connections**: network errors and server errors (5xx) are retried twice with short waits before a chapter is reported as failed.
+- **Patreon**: paste a collection URL (`patreon.com/collection/...`), which becomes one book in reading order, or a creator's page for every post they made. Sign in to Patreon in the same browser and keep "Use browser tab for fetching" on; posts your membership unlocks are included, and the rest are left out and counted in the report.
 - **WuxiaWorld without signing in**: the full chapter list still loads. Free chapters are included and locked ones are reported, instead of saving their preview text.
 - **Unlisted sites**: next-chapter detection understands Korean, Chinese, Japanese, and common European "next" labels plus icon-only next buttons, and stops when a "next" link serves the same chapter again.
 - **Sites with incomplete TOC pages**: fill in the First chapter URL and the extension follows "Next chapter" links through the whole series.
@@ -238,7 +239,7 @@ Each chapter is first requested with a plain `fetch()`. If the page comes back l
 Each site below has a dedicated config in `core/ParserRegistry.js`. Dates show the last check against a live novel. Paste the novel's index URL in either mode.
 
 <details>
-<summary>32 supported sites (click to expand)</summary>
+<summary>33 supported sites (click to expand)</summary>
 
 | Site | Last verified | Notes |
 |---|---|---|
@@ -256,6 +257,7 @@ Each site below has a dedicated config in `core/ParserRegistry.js`. Dates show t
 | [dreamy-translations.com](https://dreamy-translations.com) | 2026-06-14 | Also supports gallery scraping |
 | [dreambigtl.com](https://www.dreambigtl.com) | 2026-06-15 | |
 | [fenrirealm.com](https://fenrirealm.com) | 2026-06-15 | |
+| [Patreon](https://www.patreon.com) | 2026-11-18 | Paste a collection URL or a creator's page; see Tips |
 | [Mistmint Haven](https://www.mistminthaven.com) | 2026-09-19 | Free and Premium chapter lists; sign in for locked chapters |
 | [NovelTL](https://noveltl.com) | 2026-09-19 | |
 | [WoopRead](https://woopread.com) | 2026-09-19 | Starts at Read Now and follows Next links; keep browser-tab fetching on |
@@ -286,6 +288,7 @@ node tests/compile-feedback.mjs   # compile, download, retry, pacing, and image 
 node tests/novel-queue.mjs        # batch queue and gallery controller checks
 node tests/rate-limiter.mjs       # adaptive pacing rules
 node tests/charset.mjs            # GBK/Big5 pages decoded by their declared charset
+node tests/patreon.mjs            # Patreon URLs, reading order, and post rendering
 ```
 
 Parser fixtures (`tests/*.html`) run in a normal browser: serve the repo folder over HTTP and open each page. Each one shows PASS or FAIL.
