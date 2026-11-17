@@ -556,8 +556,8 @@ export const SITE_CONFIGS = [
     // Moved from .online to .co in 2026; old links redirect.
     hostnamePattern: /(^|\.)novelverse\.(online|co)$/,
     sampleUrls: {
-      toc: "https://novelverse.online/novel/the-legend-of-the-northern-blade/",
-      firstChapter: "https://novelverse.online/chapter/the-legend-of-the-northern-blade/lnb-chapter-1",
+      toc: "https://novelverse.co/novel/the-legend-of-the-northern-blade",
+      firstChapter: "https://novelverse.co/chapter/the-legend-of-the-northern-blade/lnb-chapter-1",
     },
     toc: {
       // No og:title meta tag - read the <title> tag itself. titleAttr is

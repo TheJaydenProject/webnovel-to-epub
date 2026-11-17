@@ -170,7 +170,7 @@ Sites are configured in `core/ParserRegistry.js`. All of these have been tested 
 - [novelbuddy.com](https://novelbuddy.com) - last verified 2026-06-15
 - [novelfire.net](https://novelfire.net) - last verified 2026-06-15
 - [novelarrow.com](https://novelarrow.com) - last verified 2026-06-15
-- [novelverse.online](https://novelverse.online) - last verified 2026-06-15
+- [novelverse.co](https://novelverse.co) (formerly novelverse.online) - last verified 2026-06-15
 - [ranovel.com](https://ranovel.com) - last verified 2026-06-15
 - [wetriedtls.com](https://wetriedtls.com) - last verified 2026-06-15
 - [dreamy-translations.com](https://dreamy-translations.com) - last verified 2026-06-14
