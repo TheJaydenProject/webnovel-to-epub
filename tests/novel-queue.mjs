@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { webcrypto } from "node:crypto";
 import { queueSnapshot, restoreQueue } from "../core/QueueState.js";
+import { SiteRateLimiter, parseRetryAfter } from "../core/RateLimiter.js";
 import { parseQueueInput, validateNovelUrl } from "../core/QueueInput.js";
 import { getConfigForUrl } from "../core/ParserRegistry.js";
 import { validateGalleryUrl, canonicalDreamyNovelUrl, gallerySkipReason } from "../core/Gallery.js";
@@ -25,7 +26,7 @@ async function setup({ fail = [], warn = [], onLoad, onCompile, storage = {}, sa
   const loaded = [], compiled = [];
   let active = 0, maxActive = 0;
   const context = vm.createContext({
-    console, URL, URLSearchParams, crypto: webcrypto, queueSnapshot, restoreQueue, validateGalleryUrl, canonicalDreamyNovelUrl, gallerySkipReason, history: { replaceState() {} }, location: { search: "", href: "https://extension.example/ui/main.html" }, parseQueueInput, validateNovelUrl,
+    console, URL, URLSearchParams, crypto: webcrypto, SiteRateLimiter, parseRetryAfter, queueSnapshot, restoreQueue, validateGalleryUrl, canonicalDreamyNovelUrl, gallerySkipReason, history: { replaceState() {} }, location: { search: "", href: "https://extension.example/ui/main.html" }, parseQueueInput, validateNovelUrl,
     document: { getElementById(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); }, createElement: element },
     browser: { runtime: { getManifest: () => ({ version: "test" }) }, storage: { local: { get: async (key) => ({ [key]: structuredClone(storage[key]) }), set: async (values) => {
       if (saveFails) throw new Error("Storage quota exceeded");

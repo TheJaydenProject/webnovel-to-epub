@@ -9,6 +9,7 @@ import { queueSnapshot, restoreQueue } from "../core/QueueState.js";
 import { readMistmintPage } from "../core/MistmintHaven.js";
 import { readDreamyPage } from "../core/DreamyPage.js";
 import { readRenderedPage } from "../core/RenderedPage.js";
+import { SiteRateLimiter, parseRetryAfter } from "../core/RateLimiter.js";
 import { validateGalleryUrl, canonicalDreamyNovelUrl, parseDreamyGallery, parseDreamyNovel, gallerySkipReason, scanEpubLibrary } from "../core/Gallery.js";
 
 const els = {
@@ -85,22 +86,65 @@ let state = {
 const pageCache = new Map(); // url -> html string
 const imageCache = new Map(); // url -> { blob, ext }
 
-const THROTTLE_MAX_MULTIPLIER = 8;
+// One adaptive pacer per site (per host for unlisted sites and image CDNs),
+// shared by every run in this dashboard and remembered between sessions.
+const limiters = new Map();
+let learnedRates = {};
+browser.storage.local.get("rateLimits").then(({ rateLimits }) => {
+  if (rateLimits && typeof rateLimits === "object") learnedRates = rateLimits;
+}).catch((err) => console.error("[rateLimits]", err));
 
-// Doubles the per-request delay (capped) when a site responds with an
-// explicit rate-limit/overload signal, similar in spirit to Scrapling's
-// AutoThrottle - without per-domain response-time tracking, just a simple
-// multiplier that grows on trouble and decays back to normal on success.
-function bumpThrottle(fetchState, status) {
-  const next = Math.min((fetchState.throttleMultiplier ?? 1) * 2, THROTTLE_MAX_MULTIPLIER);
-  if (next !== fetchState.throttleMultiplier) {
-    log(`  Got HTTP ${status} - slowing down (delay x${next.toFixed(1)}).`);
-  }
-  fetchState.throttleMultiplier = next;
+function limiterKey(config) {
+  return config.id === "generic" ? config.siteName : config.id;
 }
 
-function decayThrottle(fetchState) {
-  fetchState.throttleMultiplier = Math.max(1, (fetchState.throttleMultiplier ?? 1) * 0.85);
+function limiterFor(config) {
+  const key = limiterKey(config);
+  if (!limiters.has(key)) {
+    limiters.set(key, new SiteRateLimiter({
+      baseDelay: config.fetchIntervalBase ?? 1000,
+      jitter: config.fetchJitterRange ?? 0,
+      learned: learnedRates[key],
+    }));
+  }
+  return limiters.get(key);
+}
+
+function rememberRate(config) {
+  const key = limiterKey(config);
+  learnedRates = { ...learnedRates, [key]: limiterFor(config).snapshot() };
+  browser.storage.local.set({ rateLimits: learnedRates }).catch((err) => console.error("[rateLimits]", err));
+}
+
+function recordSuccess(config) {
+  if (limiterFor(config).onSuccess()) rememberRate(config);
+}
+
+function recordBlocked(config) {
+  const limiter = limiterFor(config);
+  if (!limiter.successes) return; // A first-visit check is not about our speed.
+  limiter.onBlocked();
+  rememberRate(config);
+  log(`  ${config.siteName || limiterKey(config)} started blocking requests - slowing down for the rest of this session.`);
+}
+
+// Pauses after a site asks us to slow down, then lets the caller retry.
+// Returns false when the site wants a pause too long to wait out safely.
+async function coolDown(config, retryAfterMs) {
+  const limiter = limiterFor(config);
+  const cooldown = limiter.onThrottle(retryAfterMs);
+  rememberRate(config);
+  const site = config.siteName || limiterKey(config);
+  if (cooldown === null) {
+    log(`  ${site} asked us to wait more than 10 minutes. Stopping requests to it to avoid being blocked.`);
+    return false;
+  }
+  log(`  ${site} asked us to slow down. Pausing ${Math.round(cooldown / 1000)}s, then continuing automatically at a slower pace.`);
+  updateNovelProgress(`Pausing ${Math.round(cooldown / 1000)}s at the site's request...`);
+  setTabStatus("Paused");
+  const until = Date.now() + cooldown;
+  while (Date.now() < until && !cancelRequested) await sleep(Math.min(1000, until - Date.now()));
+  return !cancelRequested;
 }
 
 // Safety cap for "next chapter" link-walking discovery, in case of a
@@ -746,11 +790,8 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function politeDelay(config, fetchState) {
-  const base = config.fetchIntervalBase ?? 1000;
-  const jitter = config.fetchJitterRange ?? 0;
-  const multiplier = fetchState?.throttleMultiplier ?? 1;
-  return (base + Math.random() * jitter) * multiplier;
+function politeDelay(config) {
+  return limiterFor(config).nextDelay();
 }
 
 // downloads.download rejects names Windows cannot store, which would throw
@@ -767,13 +808,26 @@ function sanitizeFilename(name) {
   return clean || "book";
 }
 
-const FETCH_ATTEMPTS = 3;
+const FETCH_ATTEMPTS = 3;      // network blips and server errors
+const MAX_THROTTLE_PAUSES = 3; // "slow down" cooldowns per request
 
-// Retries network blips, rate limits, and server errors with growing waits.
-// Other 4xx answers are final, so Cloudflare 403s still fall through to
-// browser-tab fetching immediately.
+// A 429 is always a rate limit. A 503 is one only when the site says so
+// (Retry-After) or was answering normally until now; a 503 on the first
+// request usually means the site is down, and should fail fast.
+function isRateLimited(res, limiter) {
+  if (res.status === 429) return true;
+  return res.status === 503 && (!!res.headers?.get?.("retry-after") || limiter.successes > 0);
+}
+
+// Retries network blips and server errors with short waits, pauses and
+// retries when the site asks us to slow down, and feeds every answer into
+// the site's pacer. Other 4xx answers are final, so Cloudflare 403s still
+// fall through to browser-tab fetching immediately.
 async function fetchWithRetry(url, options, { retryNetworkErrors = true } = {}) {
-  for (let attempt = 1; ; attempt++) {
+  const config = getConfigForUrl(url);
+  let attempt = 1;
+  let pauses = 0;
+  for (;;) {
     let res;
     try {
       res = await fetch(url, { ...options, signal: AbortSignal.timeout(60000) });
@@ -781,12 +835,23 @@ async function fetchWithRetry(url, options, { retryNetworkErrors = true } = {}) 
       if (err.name === "TimeoutError" || !retryNetworkErrors || attempt >= FETCH_ATTEMPTS) throw err;
       log(`  Network error (${err.message}) - retrying (${attempt}/${FETCH_ATTEMPTS - 1})...`);
       await sleep(1500 * attempt + Math.random() * 1000);
+      attempt++;
       continue;
     }
-    const transient = res.status === 429 || res.status >= 500;
-    if (!transient || attempt >= FETCH_ATTEMPTS) return res;
-    log(`  HTTP ${res.status} - retrying (${attempt}/${FETCH_ATTEMPTS - 1})...`);
-    await sleep(1500 * attempt + Math.random() * 1000);
+    if (isRateLimited(res, limiterFor(config))) {
+      if (pauses >= MAX_THROTTLE_PAUSES) return res;
+      if (!(await coolDown(config, parseRetryAfter(res.headers?.get?.("retry-after"))))) return res;
+      pauses++;
+      continue;
+    }
+    if (res.status >= 500 && attempt < FETCH_ATTEMPTS) {
+      log(`  HTTP ${res.status} - retrying (${attempt}/${FETCH_ATTEMPTS - 1})...`);
+      await sleep(1500 * attempt + Math.random() * 1000);
+      attempt++;
+      continue;
+    }
+    if (res.ok) recordSuccess(config);
+    return res;
   }
 }
 
@@ -803,7 +868,7 @@ function sniffImageExt(bytes) {
   return null;
 }
 
-async function fetchImage(url, fetchState) {
+async function fetchImage(url) {
   if (imageCache.has(url)) return imageCache.get(url);
   let res;
   try {
@@ -816,7 +881,6 @@ async function fetchImage(url, fetchState) {
     // credentialed requests - retry without cookies for those.
     res = await fetchWithRetry(url, {});
   }
-  if (res.status === 429 || res.status === 503) bumpThrottle(fetchState, res.status);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const mime = res.headers.get("content-type")?.split(";")[0].trim().toLowerCase() || "";
   const blob = await res.blob();
@@ -877,15 +941,23 @@ function findChapterBody(doc, config) {
 // the chapter content container is missing entirely.
 function looksLocked(html, config) {
   const doc = new DOMParser().parseFromString(html, "text/html");
-  if (config.content.lockedTextMatch) {
-    const body = doc.querySelector(config.content.bodySelector);
-    if (!body) return true;
-    return config.content.lockedTextMatch.test(body.textContent);
-  }
-  // JavaScript-rendered readers (including shadow DOM copy protection) arrive
-  // over plain HTTP with an empty container; only a real tab renders the text.
   const body = config.content.bodySelector ? doc.querySelector(config.content.bodySelector) : findChapterBody(doc, config);
-  return !body || (body.textContent.trim().length < 50 && !body.querySelector("img"));
+  if (!body) return true;
+  if (config.content.lockedTextMatch?.test(body.textContent)) return true;
+  // JavaScript-rendered readers (shadow DOM copy protection, "Loading..."
+  // placeholders) arrive over plain HTTP nearly empty; only a tab renders them.
+  return body.textContent.trim().length < 50 && !body.querySelector("img");
+}
+
+// A page the logged-in browser still sees as locked will not unlock by
+// retrying, so report it instead of packaging the preview as the chapter.
+function assertUnlocked(html, config) {
+  if (!config.content?.lockedTextMatch) return html;
+  const body = new DOMParser().parseFromString(html, "text/html").querySelector(config.content.bodySelector);
+  if (body && config.content.lockedTextMatch.test(body.textContent)) {
+    throw new Error(`chapter is locked. Log in to ${config.siteName || "the site"} in this browser with access to it, then retry`);
+  }
+  return html;
 }
 
 // Fetches a chapter page with hybrid fast/tab fetching: the fast path is
@@ -898,13 +970,14 @@ async function fetchChapterPage(url, config, fetchState) {
   if (config.requiresTabFetch) return fetchViaTab(url);
   if (!els.useTabFetch.checked) return fetchFast(url);
   const tabDelay = config.tabFetchDelay ?? 1000;
-  if (fetchState.forceTabFetch) return fetchViaTab(url, tabDelay);
+  if (fetchState.forceTabFetch) return assertUnlocked(await fetchViaTab(url, tabDelay), config);
 
   let html;
   try {
     html = await fetchFast(url);
   } catch (err) {
-    if (err.status === 429 || err.status === 503) bumpThrottle(fetchState, err.status);
+    // Not a pacing signal: Cloudflare sites answer most extension fetches
+    // with 403 whatever the speed. A challenge in the real tab is one.
     // A non-2xx response (e.g. a Cloudflare challenge page served as 403)
     // never reaches the locked-content check below - treat it the same way
     // and retry via a real browser tab.
@@ -912,20 +985,17 @@ async function fetchChapterPage(url, config, fetchState) {
     const tabHtml = await fetchViaTab(url, tabDelay);
     fetchState.forceTabFetch = true;
     log("  Switching remaining chapters to browser-tab fetching.");
-    return tabHtml;
+    return assertUnlocked(tabHtml, config);
   }
 
-  if (!looksLocked(html, config)) {
-    decayThrottle(fetchState);
-    return html;
-  }
+  if (!looksLocked(html, config)) return html;
 
-  log("  This chapter looks locked via normal fetch - retrying with browser tab...");
+  log("  This chapter looks locked or unrendered via normal fetch - retrying with browser tab...");
   pageCache.delete(url); // The fallback must render the page, not reuse the locked response.
   const tabHtml = await fetchViaTab(url, tabDelay);
   fetchState.forceTabFetch = true;
   log("  Switching remaining chapters to browser-tab fetching.");
-  return tabHtml;
+  return assertUnlocked(tabHtml, config);
 }
 
 function waitForTabLoad(tabId, timeoutMs = 30000) {
@@ -961,27 +1031,42 @@ async function loadCompletedGallery(url) {
   return new Set(parseDreamyGallery(doc, url, true).map(novel => novel.tocUrl));
 }
 
+const AUTO_CHECK_WAIT_MS = 15 * 1000;
 const VERIFICATION_TIMEOUT_MS = 5 * 60 * 1000;
 
-// A Cloudflare/CAPTCHA check cannot be passed automatically, so show the tab
-// and let the user complete it, the same way a person loading the page would.
-// The clearance cookie it sets then lets later background fetches through.
-async function waitForUserVerification(tabId, readTab) {
-  log("  The site is showing a verification check. Complete it in the tab that just opened; the run continues automatically.");
+// Re-reads a tab until it stops showing a verification page or time runs out.
+async function waitWhileChallenged(readTab, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let page = { challenge: true, html: "" };
+  while (page.challenge && Date.now() < deadline && !cancelRequested) {
+    await sleep(2000);
+    try {
+      page = await readTab();
+    } catch {
+      // The page navigates once the check passes; read again after it settles.
+    }
+  }
+  return page;
+}
+
+// Most Cloudflare checks are automatic and finish on their own in a few
+// seconds, the same as for any visitor, so wait quietly first. Only a check
+// that needs a person (a CAPTCHA) brings the tab forward for the user.
+async function waitForUserVerification(tabId, readTab, autoWaitMs = AUTO_CHECK_WAIT_MS) {
+  log("  Waiting for the site's automatic security check to finish...");
+  let page = await waitWhileChallenged(readTab, autoWaitMs);
+  if (!page.challenge) {
+    log("  Security check passed. Continuing.");
+    return page;
+  }
+  if (cancelRequested) throw new Error("Stopped while waiting for the site's security check.");
+
+  log("  The site needs you to complete a verification check. Complete it in the tab that just opened; the run continues automatically.");
   updateNovelProgress("Waiting for you to complete the site's verification check...");
   setTabStatus("Action needed");
   await browser.tabs.update(tabId, { active: true });
-  const deadline = Date.now() + VERIFICATION_TIMEOUT_MS;
-  let page = { challenge: true, html: "" };
   try {
-    while (page.challenge && Date.now() < deadline && !cancelRequested) {
-      await sleep(2000);
-      try {
-        page = await readTab();
-      } catch {
-        // The page navigates once the check passes; read again after it settles.
-      }
-    }
+    page = await waitWhileChallenged(readTab, VERIFICATION_TIMEOUT_MS);
   } finally {
     const dashboard = await browser.tabs.getCurrent?.().catch(() => null);
     if (dashboard) await browser.tabs.update(dashboard.id, { active: true }).catch(() => {});
@@ -995,34 +1080,54 @@ async function waitForUserVerification(tabId, readTab) {
     : "The site's verification check was not completed within 5 minutes.");
 }
 
+// Opens the page in a background tab and reads the rendered result. Tabs
+// show rate-limit pages like any other page, so the reader reports the HTTP
+// status and a 429/503 pauses and retries in a fresh tab.
 async function fetchViaTab(url, delay = 1000, completedOnly = false) {
   const cacheKey = completedOnly ? `${url}#completed-only` : url;
   if (pageCache.has(cacheKey)) return pageCache.get(cacheKey);
   const config = getConfigForUrl(url);
   const siteReader = config.id === "mistminthaven" ? readMistmintPage
     : config.id === "dreamy-translations" ? readDreamyPage : null;
-  const readTab = async () => {
-    const results = await browser.scripting.executeScript({
-      target: { tabId: tab.id },
-      args: siteReader ? [completedOnly] : [config.content?.bodySelector ?? null],
-      func: siteReader || readRenderedPage,
-    });
-    if (results[0]?.error) throw new Error(results[0].error.message || String(results[0].error));
-    const result = results[0]?.result;
-    return siteReader ? { challenge: false, html: result ?? "" } : result ?? { challenge: false, html: "" };
-  };
-  const tab = await browser.tabs.create({ url, active: false });
-  try {
-    await waitForTabLoad(tab.id);
-    // Give client-rendered pages a brief moment to finish hydrating after
-    // the initial "complete" status before reading the DOM.
-    await sleep(delay);
-    let page = await readTab();
-    if (page.challenge) page = await waitForUserVerification(tab.id, readTab);
+  for (let pauses = 0; ; pauses++) {
+    const tab = await browser.tabs.create({ url, active: false });
+    let page;
+    try {
+      const readTab = async () => {
+        let results;
+        try {
+          results = await browser.scripting.executeScript({
+            target: { tabId: tab.id },
+            args: siteReader ? [completedOnly] : [config.content?.bodySelector ?? null],
+            func: siteReader || readRenderedPage,
+          });
+        } catch (err) {
+          // Chrome refuses to script its own network error page.
+          if (/error page/i.test(err.message)) throw new Error("The page did not load. The site may be down or blocking access; open it in your browser to check.");
+          throw err;
+        }
+        if (results[0]?.error) throw new Error(results[0].error.message || String(results[0].error));
+        const result = results[0]?.result;
+        return siteReader ? { challenge: false, html: result ?? "" } : result ?? { challenge: false, html: "" };
+      };
+      await waitForTabLoad(tab.id);
+      // Give client-rendered pages a brief moment to finish hydrating after
+      // the initial "complete" status before reading the DOM.
+      await sleep(delay);
+      page = await readTab();
+      if (page.challenge) {
+        recordBlocked(config);
+        page = await waitForUserVerification(tab.id, readTab);
+      }
+    } finally {
+      await browser.tabs.remove(tab.id).catch(() => {});
+    }
+    const throttled = page.status === 429 || (page.status === 503 && limiterFor(config).successes > 0);
+    if (throttled && pauses < MAX_THROTTLE_PAUSES && await coolDown(config, null)) continue;
+    if (throttled) throw new Error(`HTTP ${page.status}: the site is rate limiting requests. Try again later.`);
+    recordSuccess(config);
     pageCache.set(cacheKey, page.html);
     return page.html;
-  } finally {
-    await browser.tabs.remove(tab.id).catch(() => {});
   }
 }
 
@@ -1100,7 +1205,7 @@ async function loadNovel(tocUrl, firstChapterUrl) {
   const novelSlug = tocUrl.match(/\/novel\/([^/?#]+)/)?.[1];
   if (config.id === "wuxiaworld" && !wuxiaToken && novelSlug) wuxiaToken = await autoFillWuxiaToken();
   if (cancelRequested) return;
-  if (config.id === "wuxiaworld" && wuxiaToken && novelSlug) {
+  if (config.id === "wuxiaworld" && novelSlug && (wuxiaToken || !firstChapterUrl)) {
     await loadViaWuxiaApi(tocUrl, novelSlug, wuxiaToken, config);
   } else if (firstChapterUrl && !config.preferTocDiscovery) {
     await loadViaNextLinkWalk(tocUrl, firstChapterUrl, config);
@@ -1199,19 +1304,25 @@ async function loadViaWuxiaApi(tocUrl, novelSlug, token, config) {
 
   log("Fetching chapter list from WuxiaWorld API...");
   const allChapters = await WuxiaworldApi.getChapterList(novelId, token);
-  const accessible = allChapters.filter((c) => c.accessible);
-  accessible.sort((a, b) => a.chapterNumber - b.chapterNumber);
+  // Signed out, the API still lists every chapter but marks all of them
+  // locked, so list them all and read each page in the browser instead: free
+  // chapters load normally and locked ones are reported per chapter.
+  const usable = token ? allChapters.filter((c) => c.accessible) : allChapters;
+  usable.sort((a, b) => a.chapterNumber - b.chapterNumber);
 
-  const chapters = accessible.map((c) => ({
+  const chapters = usable.map((c) => ({
     index: c.chapterNumber,
-    chapterId: c.chapterId,
-    chapterSlug: c.chapterSlug,
+    ...(token
+      ? { chapterId: c.chapterId, chapterSlug: c.chapterSlug }
+      : { href: `https://www.wuxiaworld.com/novel/${novelSlug}/${c.chapterSlug}` }),
     label: c.chapterName || `Chapter ${c.chapterNumber}`,
   }));
 
   els.progressBar.value = 0;
   els.stopBtn.disabled = true;
-  log(`Found ${chapters.length} accessible chapter(s) out of ${allChapters.length} total.`);
+  log(token
+    ? `Found ${chapters.length} accessible chapter(s) out of ${allChapters.length} total.`
+    : `Found ${chapters.length} chapter(s). Not signed in to WuxiaWorld, so chapters are read from the site and locked ones will be reported.`);
 
   state = { config, novelTitle, author, coverUrl, chapters, novelSlug, apiToken: token, discoveryIssues };
   populateBookUi();
@@ -1264,7 +1375,7 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
 
   const chapters = [];
   const seen = new Set();
-  const fetchState = { forceTabFetch: false, throttleMultiplier: 1 };
+  const fetchState = { forceTabFetch: false };
   let nextUrl = firstChapterUrl;
   let index = 1;
   let previousBodyText = null;
@@ -1302,7 +1413,7 @@ async function loadViaNextLinkWalk(tocUrl, firstChapterUrl, config) {
     index += 1;
 
     if (nextUrl) {
-      await sleep(politeDelay(config, fetchState));
+      await sleep(politeDelay(config));
     }
   }
 
@@ -1546,12 +1657,12 @@ async function compile(report) {
 
   const outputTitle = state.outputTitle || novelTitle;
   const compiler = new EpubCompiler({ title: outputTitle, author, sourceUrl: state.sourceUrl || "" });
-  const fetchState = { forceTabFetch: false, throttleMultiplier: 1 };
+  const fetchState = { forceTabFetch: false };
 
   if (coverUrl) {
     log("Fetching cover image...");
     try {
-      const { blob, ext } = await fetchImage(coverUrl, fetchState);
+      const { blob, ext } = await fetchImage(coverUrl);
       compiler.setCover(`cover.${ext}`, blob);
     } catch (err) {
       log(`Warning: could not fetch cover image (${err.message}).`);
@@ -1622,7 +1733,7 @@ async function compile(report) {
               break;
             }
             const pageUrl = baseUrl + pageUrlSuffix + pageNum;
-            await sleep(politeDelay(config, fetchState));
+            await sleep(politeDelay(config));
             let pageHtml;
             try {
               pageHtml = await fetchChapterPage(pageUrl, config, fetchState);
@@ -1662,7 +1773,7 @@ async function compile(report) {
     updateNovelProgress(`Processed ${i + 1} of ${selected.length} chapters`, i + 1, selected.length);
 
     if (i < selected.length - 1) {
-      await sleep(politeDelay(config, fetchState));
+      await sleep(politeDelay(config));
     }
   }
 
@@ -1695,7 +1806,7 @@ async function compile(report) {
     log(`Fetching image ${absoluteUrl}`);
     updateNovelProgress(`Image ${i + 1} of ${imageEntries.length}`, i, imageEntries.length);
     try {
-      const { blob, ext } = await fetchImage(absoluteUrl, fetchState);
+      const { blob, ext } = await fetchImage(absoluteUrl);
       const filename = `${placeholder}.${ext}`;
       compiler.addImage(filename, blob);
       report.savedImages += 1;
@@ -1706,7 +1817,7 @@ async function compile(report) {
       resolution.set(placeholder, null);
     }
     if (i < imageEntries.length - 1) {
-      await sleep(politeDelay(config, fetchState));
+      await sleep(politeDelay(config));
     }
   }
 

@@ -16,6 +16,9 @@ export async function readRenderedPage(bodySelector = null) {
     }
   };
   const hosts = () => [...document.querySelectorAll("*")].filter((el) => shadowOf(el));
+  // Lets the caller treat a rendered 429/503 page as a rate limit, not content.
+  // responseStatus is newer than this extension's minimum browsers: null when absent.
+  const status = performance.getEntriesByType?.("navigation")[0]?.responseStatus || null;
 
   const isChallenge = () => {
     const title = document.title.trim();
@@ -53,7 +56,7 @@ export async function readRenderedPage(bodySelector = null) {
   let lastLength = -1;
   let stable = 0;
   while (Date.now() < deadline) {
-    if (isChallenge()) return { challenge: true, html: "" };
+    if (isChallenge()) return { challenge: true, html: "", status };
     if (bodySelector) {
       const body = findBody();
       if (body && (textOf(body).length >= 50 || body.querySelector("img"))) break;
@@ -67,7 +70,7 @@ export async function readRenderedPage(bodySelector = null) {
   }
   // On timeout, return what rendered; the caller's checks report missing content.
 
-  if (!hosts().length) return { challenge: false, html: document.documentElement.outerHTML };
+  if (!hosts().length) return { challenge: false, html: document.documentElement.outerHTML, status };
 
   const RAW_TEXT = new Set(["script", "style", "xmp", "iframe", "noembed", "noframes", "noscript", "plaintext"]);
   const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
@@ -94,5 +97,5 @@ export async function readRenderedPage(bodySelector = null) {
     return `<${tag}${attrs}>${children.map((child) => serialize(child, inShadow || !!shadow)).join("")}</${tag}>`;
   };
 
-  return { challenge: false, html: serialize(document.documentElement, false) };
+  return { challenge: false, html: serialize(document.documentElement, false), status };
 }

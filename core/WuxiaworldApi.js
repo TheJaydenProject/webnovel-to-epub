@@ -169,7 +169,9 @@ async function callApi(serviceMethod, body, token) {
   const res = await fetch(`${API_BASE}/${SERVICE}.${serviceMethod}`, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${token}`,
+      // Without a token the API still lists chapters (all marked locked),
+      // which beats scraping the index's client-rendered list.
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
       "content-type": "application/grpc-web+proto",
       "x-grpc-web": "1",
       "client-version": CLIENT_VERSION,

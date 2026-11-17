@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { webcrypto } from "node:crypto";
 import { queueSnapshot, restoreQueue } from "../core/QueueState.js";
+import { SiteRateLimiter, parseRetryAfter } from "../core/RateLimiter.js";
 
 const source = readFileSync(new URL("../ui/main.js", import.meta.url), "utf8")
   .replace(/^import .*;\r?\n/gm, "");
@@ -25,7 +26,7 @@ async function run(options = {}) {
   let downloads = 0;
   let filename;
   const context = vm.createContext({
-    console, URL, URLSearchParams, crypto: webcrypto, fetch: options.fetch, AbortSignal, queueSnapshot, restoreQueue, history: { replaceState() {} }, location: { search: "", href: "https://extension.example/ui/main.html" },
+    console, URL, URLSearchParams, crypto: webcrypto, SiteRateLimiter, parseRetryAfter, getConfigForUrl: (url) => ({ id: "generic", siteName: new URL(url).hostname, toc: {}, content: {}, fetchIntervalBase: 0 }), fetch: options.fetch, AbortSignal, queueSnapshot, restoreQueue, history: { replaceState() {} }, location: { search: "", href: "https://extension.example/ui/main.html" },
     document: {
       getElementById(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); },
       createElement: element,
@@ -192,14 +193,48 @@ ctx.fetch = async () => { calls++; return { ok: false, status: 403 }; };
 await assert.rejects(vm.runInContext("fetchFast('https://example.com/blocked')", ctx), /HTTP 403/);
 assert.equal(calls, 1, "a 403 must fall through to tab fetching without retries");
 
-// A verification page is shown to the user, then reading resumes once it passes.
+// An automatic security check that clears by itself never involves the user.
 const activated = [];
 ctx.browser.tabs = { update: async (id) => { activated.push(id); }, getCurrent: async () => ({ id: 99 }) };
 let reads = 0;
 ctx.readTabStub = async () => (++reads < 3 ? { challenge: true, html: "" } : { challenge: false, html: "solved" });
-const solved = await vm.runInContext("waitForUserVerification(5, readTabStub)", ctx);
+assert.equal((await vm.runInContext("waitForUserVerification(5, readTabStub)", ctx)).html, "solved");
+assert.deepEqual(activated, [], "an automatic check must not pull the user in");
+
+// A check that outlasts the quiet wait is shown to the user, then reading resumes.
+reads = 0;
+const solved = await vm.runInContext("waitForUserVerification(5, readTabStub, 0)", ctx);
 assert.equal(solved.html, "solved");
 assert.deepEqual(activated, [5, 99], "show the challenge tab, then return to the dashboard");
+
+// Rate limits: a 429 pauses (honoring Retry-After), slows the site's pace,
+// remembers it, and retries the same request without failing it.
+const logText = () => vm.runInContext("logLines.join('\\n')", ctx);
+calls = 0;
+ctx.fetch = async () => (++calls === 1
+  ? { ok: false, status: 429, headers: { get: (h) => (h === "retry-after" ? "45" : null) } }
+  : { ok: true, status: 200, text: async () => "after pause" });
+vm.runInContext("limiters.clear(); pageCache.clear(); clearLog(); cancelRequested = false;", ctx);
+assert.equal(await vm.runInContext("fetchFast('https://slow.example/chapter-1')", ctx), "after pause");
+assert.equal(calls, 2);
+assert.match(logText(), /slow\.example asked us to slow down\. Pausing 45s/);
+assert.equal(vm.runInContext("limiterFor(getConfigForUrl('https://slow.example/x')).delay", ctx), 1000, "delay doubles from the 500ms floor");
+assert.equal(vm.runInContext("learnedRates['slow.example'].delay", ctx), 1000, "learned pace is persisted");
+
+// A 503 on first contact is an outage, not a rate limit: fail fast, no pause.
+calls = 0;
+ctx.fetch = async () => { calls++; return { ok: false, status: 503 }; };
+vm.runInContext("clearLog();", ctx);
+await assert.rejects(vm.runInContext("fetchFast('https://down.example/novel')", ctx), /HTTP 503/);
+assert.equal(calls, 3);
+assert.doesNotMatch(logText(), /slow down/);
+
+// A site demanding more than 10 minutes is left alone rather than retried.
+calls = 0;
+ctx.fetch = async () => { calls++; return { ok: false, status: 429, headers: { get: () => "3600" } }; };
+await assert.rejects(vm.runInContext("fetchFast('https://strict.example/novel')", ctx), /HTTP 429/);
+assert.equal(calls, 1);
+assert.match(logText(), /more than 10 minutes/);
 
 // Unsupported sites: non-English next labels and icon-only buttons.
 const link = (text, href, extra = {}) => ({ textContent: text, getAttribute: (name) => (name === "href" ? href : null), ...extra });
@@ -212,4 +247,4 @@ assert.equal(next(fakeDoc([link("", "/c/0")], [link("", "/c/2")])), "https://exa
 assert.equal(next(fakeDoc([], [link("", "javascript:void(0)")])), null);
 assert.equal(next(fakeDoc([], [link("", "/novel")])), null, "a link back to the index ends the walk");
 
-console.log("Compile feedback checks passed (30 scenarios).");
+console.log("Compile feedback checks passed (35 scenarios).");

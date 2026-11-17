@@ -258,7 +258,7 @@ export const SITE_CONFIGS = [
       // The og:title is "{Novel Title} Novel | Read Online on Novel Arrow" -
       // strip the suffix so chapter-title extraction can match the novel
       // title prefix.
-      titleSuffixRegex: /\s*Novel\s*\|\s*Read Online on Novel Arrow\s*$/i,
+      titleSuffixRegex: /\s*Novel\s*\|\s*Read Online on Novel ?Arrow\s*$/i,
       coverSelector: 'meta[property="og:image"]',
       coverAttr: "content",
       // This site (Next.js) paginates its chapter list client-side, so this
@@ -553,7 +553,8 @@ export const SITE_CONFIGS = [
   },
   {
     id: "novelverse",
-    hostnamePattern: /(^|\.)novelverse\.online$/,
+    // Moved from .online to .co in 2026; old links redirect.
+    hostnamePattern: /(^|\.)novelverse\.(online|co)$/,
     sampleUrls: {
       toc: "https://novelverse.online/novel/the-legend-of-the-northern-blade/",
       firstChapter: "https://novelverse.online/chapter/the-legend-of-the-northern-blade/lnb-chapter-1",
