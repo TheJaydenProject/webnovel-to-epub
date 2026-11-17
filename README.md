@@ -47,15 +47,23 @@ A browser extension for downloading web novels as EPUB files. Give it a TOC page
 <p align="center">
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="images/demo-source-light.png">
-  <img src="images/demo-source-dark.png" alt="Dashboard with a novel index URL and first chapter URL filled in" width="380">
-</picture>
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="images/demo-chapters-light.png">
-  <img src="images/demo-chapters-dark.png" alt="Loaded novel with cover, chapter checklist, and a successful compile report" width="380">
+  <img src="images/demo-source-dark.png" alt="Dashboard with a novel index URL and first chapter URL filled in" width="760">
 </picture>
 </p>
 
-<p align="center"><sub>The dashboard follows your system's light or dark theme. Screenshots use a public-domain demo novel served locally.</sub></p>
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="images/demo-chapters-light.png">
+  <img src="images/demo-chapters-dark.png" alt="Loaded novel with cover, chapter checklist, and a successful compile report" width="760">
+</picture>
+</p>
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="images/demo-queue-light.png">
+  <img src="images/demo-queue-dark.png" alt="Batch queue with two novels waiting" width="760">
+</picture>
+</p>
 
 - Reads the TOC page automatically to pull the title, author, chapter list, and cover art without any manual input
 - Handles Cloudflare-protected and login-gated sites by loading pages in a real background tab using your existing browser session
@@ -116,13 +124,6 @@ codebase is not available before Chrome 148.
 The EPUB downloads automatically when done. Use **Show in folder** to find it, and **Copy log** to grab the full console output for a bug report. The tab title shows progress, so you can watch a run from another tab. The browser asks before closing the dashboard while a run is in progress. Your fetching toggles are remembered between sessions.
 
 ### Queue multiple novels
-
-<p align="center">
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="images/demo-queue-light.png">
-  <img src="images/demo-queue-dark.png" alt="Batch queue with two novels waiting" width="420">
-</picture>
-</p>
 
 Choose **Batch queue**, paste one novel index URL per line, click **Add to queue**, then **Start queue**. Use **Single novel** for the original chapter-selection workflow. Shared fetching settings apply to both modes; single-novel auto-compile and chapter ranges do not apply to queued novels.
 
