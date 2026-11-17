@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="icons/icon-128.png" alt="" width="72" height="72">
+
 <h3 align="center">Web Novel to EPUB</h3>
 
 <p align="center">
@@ -13,28 +15,60 @@
   <a href="https://github.com/TheJaydenProject/webnovel-to-epub/issues/new?template=site_request.md">Request a Site</a>
 </p>
 
+[![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black)]()
+[![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=flat-square&logo=html5&logoColor=white)]()
+[![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=flat-square&logo=css3&logoColor=white)]()
+[![Manifest V3](https://img.shields.io/badge/Manifest_V3-4285F4?style=flat-square&logo=googlechrome&logoColor=white)]()
+[![Firefox](https://img.shields.io/badge/Firefox-FF7139?style=flat-square&logo=firefoxbrowser&logoColor=white)]()
+[![JSZip](https://img.shields.io/badge/JSZip-3C3C3C?style=flat-square)]()
+
 </div>
+
+<details>
+<summary>Table of contents</summary>
+
+- [About The Project](#about-the-project)
+- [Getting Started](#getting-started)
+- [Usage](#usage)
+- [How It Works](#how-it-works)
+- [Supported Sites](#supported-sites)
+- [Testing](#testing)
+- [Requesting a New Site](#requesting-a-new-site)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+
+</details>
 
 ## About The Project
 
-![Demo 1](images/demo1.png)
-
-![Demo 2](images/demo2.png)
-
 A browser extension for downloading web novels as EPUB files. Give it a TOC page, select your chapters, and it packages the content with cover art and images into a compressed EPUB.
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="images/demo-source-light.png">
+  <img src="images/demo-source-dark.png" alt="Dashboard with a novel index URL and first chapter URL filled in" width="380">
+</picture>
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="images/demo-chapters-light.png">
+  <img src="images/demo-chapters-dark.png" alt="Loaded novel with cover, chapter checklist, and a successful compile report" width="380">
+</picture>
+</p>
+
+<p align="center"><sub>The dashboard follows your system's light or dark theme. Screenshots use a public-domain demo novel served locally.</sub></p>
 
 - Reads the TOC page automatically to pull the title, author, chapter list, and cover art without any manual input
 - Handles Cloudflare-protected and login-gated sites by loading pages in a real background tab using your existing browser session
 - WuxiaWorld users get their API token auto-filled from an open wuxiaworld.com tab
 - EPUB output is DEFLATE-compressed at level 9, so file sizes stay small
-- Auto-compile is on by default -- no need to click Compile after chapters finish loading
+- Auto-compile is on by default, so there is no need to click Compile after chapters finish loading
 - A Stop button lets you bail out early and still get an EPUB with whatever was fetched
 
-14 sites verified and working. More added on request.
+32 sites have dedicated support, and any other site gets best-effort auto-detection of chapter text and "Next chapter" links. More sites are added on request.
 
 ### Built With
 
-- [WebExtension APIs (Manifest V3)](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions) — one codebase for Firefox and Chrome
+- [WebExtension APIs (Manifest V3)](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions): one codebase for Firefox and Chrome
 - [JSZip](https://stuk.github.io/jszip/)
 
 ## Getting Started
@@ -64,7 +98,7 @@ hidden behind the puzzle-piece menu until you pin it.
 
 ### How one manifest covers both
 
-`manifest.json` declares the background entry twice — `service_worker` for
+`manifest.json` declares the background entry twice: `service_worker` for
 Chromium and `scripts` for Firefox. Each browser reads the key it understands
 and ignores the other. `browser-shim.js` aliases `browser` to `chrome` on
 Chromium, where the promise-based `browser.*` namespace used throughout this
@@ -73,7 +107,7 @@ codebase is not available before Chrome 148.
 ## Usage
 
 1. Open the novel's table-of-contents page in your browser (the series or index page, not a chapter page)
-2. Click the extension icon -- the TOC URL fills in automatically
+2. Click the extension icon. The dashboard opens with the TOC URL already filled in
 3. Optionally fill in a **First chapter URL** if the TOC does not list every chapter; the extension will walk "Next chapter" links from there
 4. Click **Load chapters**
 5. Use **Select all / Select none**, the **From / To** range, or the search box to pick what you want. While searching, the bulk buttons act only on the matching chapters. Shift-click a chapter to select everything between it and the last one you clicked.
@@ -82,6 +116,13 @@ codebase is not available before Chrome 148.
 The EPUB downloads automatically when done. Use **Show in folder** to find it, and **Copy log** to grab the full console output for a bug report. The tab title shows progress, so you can watch a run from another tab. The browser asks before closing the dashboard while a run is in progress. Your fetching toggles are remembered between sessions.
 
 ### Queue multiple novels
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="images/demo-queue-light.png">
+  <img src="images/demo-queue-dark.png" alt="Batch queue with two novels waiting" width="420">
+</picture>
+</p>
 
 Choose **Batch queue**, paste one novel index URL per line, click **Add to queue**, then **Start queue**. Use **Single novel** for the original chapter-selection workflow. Shared fetching settings apply to both modes; single-novel auto-compile and chapter ranges do not apply to queued novels.
 
@@ -118,11 +159,15 @@ The scan reports existing books, queued books, Hiatus titles, premium titles, un
 
 ### Tips
 
-- **Sites behind Cloudflare or a login wall** -- "Use browser tab for fetching" is on by default. Just make sure you are logged in to the site before loading.
-- **Verification checks ("Just a moment...", CAPTCHAs)** -- Cloudflare's automatic check usually finishes by itself, so the extension first waits quietly for up to 15 seconds. If the check needs a person, it brings that tab forward. Complete the check yourself and the run continues automatically; the clearance usually covers the rest of the novel. It waits up to 5 minutes, and Stop cancels the wait. The extension never tries to solve or bypass these checks.
-- **Copy-protected readers** -- browser-tab fetching reads chapter text rendered inside shadow DOM, and waits for late-loading text instead of reading an empty page.
-- **Flaky connections** -- network errors and server errors (5xx) are retried twice with short waits before a chapter is reported as failed.
-- **WuxiaWorld without signing in** -- the full chapter list still loads. Free chapters are included and locked ones are reported, instead of saving their preview text.
+- **Sites behind Cloudflare or a login wall**: "Use browser tab for fetching" is on by default. Just make sure you are logged in to the site before loading.
+- **Verification checks ("Just a moment...", CAPTCHAs)**: Cloudflare's automatic check usually finishes by itself, so the extension first waits quietly for up to 15 seconds. If the check needs a person, it brings that tab forward. Complete the check yourself and the run continues automatically; the clearance usually covers the rest of the novel. It waits up to 5 minutes, and Stop cancels the wait. The extension never tries to solve or bypass these checks.
+- **Copy-protected readers**: browser-tab fetching reads chapter text rendered inside shadow DOM, and waits for late-loading text instead of reading an empty page.
+- **Flaky connections**: network errors and server errors (5xx) are retried twice with short waits before a chapter is reported as failed.
+- **WuxiaWorld without signing in**: the full chapter list still loads. Free chapters are included and locked ones are reported, instead of saving their preview text.
+- **Unlisted sites**: next-chapter detection understands Korean, Chinese, Japanese, and common European "next" labels plus icon-only next buttons, and stops when a "next" link serves the same chapter again.
+- **Sites with incomplete TOC pages**: fill in the First chapter URL and the extension follows "Next chapter" links through the whole series.
+- **WuxiaWorld**: keep a wuxiaworld.com tab open while logged in and the extension fills your API token for you.
+- **Stopping early**: click Stop at any point. You still get an EPUB from whatever chapters were fetched.
 
 ### Adaptive pacing
 
@@ -136,18 +181,56 @@ Each site gets its own request pace, and the extension learns it as it goes. The
 | Asks for a pause longer than 10 minutes | Stops sending requests to that site and keeps what was fetched, rather than risk a ban. |
 
 Learned paces are saved locally per site and drift back to the default after 7 days. A site's limit can only be found by exceeding it, and some sites ban on the first breach without a warning. So the extension never probes past its floor: it speeds up slowly and backs off hard. A 503 on the very first request is treated as the site being down, not as a rate limit, so outages fail fast instead of waiting.
-- **Unlisted sites** -- next-chapter detection understands Korean, Chinese, Japanese, and common European "next" labels plus icon-only next buttons, and stops when a "next" link serves the same chapter again.
-- **Sites with incomplete TOC pages** -- fill in the First chapter URL and the extension follows "Next chapter" links through the whole series.
-- **WuxiaWorld** -- keep a wuxiaworld.com tab open while logged in and the extension fills your API token for you.
-- **Stopping early** -- click Stop at any point. You still get an EPUB from whatever chapters were fetched.
 
-### Advanced Options
+### Shared fetching settings
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| Use browser tab for fetching | On | Loads pages in a real background tab -- required for Cloudflare-protected or login-gated sites |
-| Auto-compile after loading | On | Skips the manual Compile step |
+| Use browser tab for fetching | On | Loads pages in a real background tab. Required for Cloudflare-protected or login-gated sites |
+| Auto-compile after loading | On | Skips the manual Compile step (single-novel mode only) |
 | WuxiaWorld API token | Auto | Filled from an open wuxiaworld.com tab |
+
+## How It Works
+
+Everything runs inside your browser; there is no server. The toolbar button opens the dashboard, and the dashboard does all fetching, parsing, and packaging itself.
+
+```mermaid
+%%{init: {"flowchart": {"curve": "step", "nodeSpacing": 30, "rankSpacing": 60}}}%%
+flowchart LR
+  user(["<b>Toolbar button</b>"])
+  site(["<b>Novel site</b>"])
+
+  subgraph ext["<b>Extension</b> · manifest.json"]
+    bg["<b>Background worker</b><br/><i>background/background.js</i>"]
+    dash["<b>Dashboard</b><br/><i>ui/main.html, ui/main.js</i>"]
+    reg["<b>Site configs</b><br/><i>core/ParserRegistry.js</i>"]
+    tab["<b>Hidden tab</b><br/><i>fetchViaTab in ui/main.js</i>"]
+    epub["<b>EPUB builder</b><br/><i>core/EpubCompiler.js, JSZip</i>"]
+  end
+  dl[("<b>Downloads folder</b>")]
+
+  user -->|"action.onClicked"| bg
+  bg -->|"tabs.create with the page URL"| dash
+  dash -->|"selectors per hostname"| reg
+  dash -->|"fetch, fast path"| site
+  dash -->|"tabs.create, scripting.executeScript"| tab
+  tab -->|"your logged-in session"| site
+  dash -->|"chapters, cover, images"| epub
+  epub -->|"downloads.download"| dl
+
+  classDef actor fill:#ffffff,stroke:#64748b,stroke-width:1px,color:#0f172a
+  classDef accent fill:#fff7ed,stroke:#f97316,stroke-width:1.5px,color:#0f172a
+  classDef comp fill:#eff6ff,stroke:#2563eb,stroke-width:1px,color:#0f172a
+  classDef store fill:#f8fafc,stroke:#64748b,stroke-width:1px,color:#0f172a
+  class user,site actor
+  class dash accent
+  class bg,reg,tab,epub comp
+  class dl store
+
+  style ext fill:none,stroke:#2563eb,stroke-width:2px
+```
+
+Each chapter is first requested with a plain `fetch()`. If the page comes back locked, blocked, or empty and browser-tab fetching is on, the same URL is loaded in a hidden background tab, so the site sees your normal session, cookies, and rendered JavaScript. Supported sites have a config in `core/ParserRegistry.js` (title, cover, chapter list, body selectors, pacing); other sites fall back to auto-detection in `core/ContentDetector.js`.
 
 ## Supported Sites
 
@@ -158,9 +241,9 @@ Learned paces are saved locally per site and drift back to the default after 7 d
 **WoopRead is also supported.** Use its `/series/...` index URL in either mode. The parser starts at **Read Now** and follows **Next** links, since the index initially shows only a short preview of the chapter list. Keep browser-tab fetching enabled for client-rendered pages. Covers and available inline/lazy-loaded images are included; missing or failed image URLs appear in the novel's warning report. Live markup and cover retrieval were checked on 2026-09-19; EPUB image packaging was verified with browser fixtures.
 
 <details>
-<summary>14 verified sites -- click to expand</summary>
+<summary>29 more supported sites (click to expand)</summary>
 
-Sites are configured in `core/ParserRegistry.js`. All of these have been tested end-to-end and produced a working EPUB.
+Sites are configured in `core/ParserRegistry.js`. Dates show the last time each site was checked against a live novel.
 
 - [wattpad.com](https://www.wattpad.com) - last verified 2026-06-15
 - [royalroad.com](https://www.royalroad.com) - last verified 2026-06-15
@@ -168,7 +251,7 @@ Sites are configured in `core/ParserRegistry.js`. All of these have been tested 
 - [wuxiaworld.com](https://www.wuxiaworld.com) - last verified 2026-06-14
 - [novelbin.com](https://novelbin.com) / [novelbin.me](https://novelbin.me) - last verified 2026-06-15
 - [novelbuddy.com](https://novelbuddy.com) - last verified 2026-06-15
-- [novelfire.net](https://novelfire.net) - last verified 2026-06-15
+- [novelphoenix.com](https://novelphoenix.com) (formerly novelfire.net) - checked in a normal browser 2026-11-17
 - [novelarrow.com](https://novelarrow.com) - last verified 2026-06-15
 - [novelverse.co](https://novelverse.co) (formerly novelverse.online) - last verified 2026-06-15
 - [ranovel.com](https://ranovel.com) - last verified 2026-06-15
@@ -176,6 +259,19 @@ Sites are configured in `core/ParserRegistry.js`. All of these have been tested 
 - [dreamy-translations.com](https://dreamy-translations.com) - last verified 2026-06-14
 - [dreambigtl.com](https://www.dreambigtl.com) - last verified 2026-06-15
 - [fenrirealm.com](https://fenrirealm.com) - last verified 2026-06-15
+- [mochistar.org](https://mochistar.org), [oceanstale.com](https://oceanstale.com), [bailiantales.com](https://bailiantales.com) - last verified 2026-11-17
+- [kaystls.site](https://kaystls.site) - last verified 2026-11-17
+- [peachpuff.in](https://peachpuff.in) - last verified 2026-11-17
+- [readthedrama.com](https://www.readthedrama.com) - last verified 2026-11-17
+- [konkon.ink](https://konkon.ink) - last verified 2026-11-17
+- [cuttlefishreads.com](https://www.cuttlefishreads.com) - last verified 2026-11-17
+- [hostednovel.com](https://hostednovel.com) - last verified 2026-11-17 (reads every page of the chapter list)
+- [lightnovelasia.com](https://lightnovelasia.com) - last verified 2026-11-17
+- [noveli.to](https://noveli.to) - last verified 2026-11-17
+- [kanunu8.com](https://www.kanunu8.com) (GBK pages) - last verified 2026-11-17
+- [ixdzs.tw](https://ixdzs.tw) - last verified 2026-11-17
+- [empirenovel.com](https://www.empirenovel.com) - checked in a normal browser 2026-11-17
+- [mintteanovel.com](https://mintteanovel.com) - most chapters need a Minttea account; sign in first
 
 </details>
 
@@ -185,6 +281,7 @@ Sites are configured in `core/ParserRegistry.js`. All of these have been tested 
 node tests/compile-feedback.mjs   # compile, download, retry, pacing, and image checks
 node tests/novel-queue.mjs        # batch queue and gallery controller checks
 node tests/rate-limiter.mjs       # adaptive pacing rules
+node tests/charset.mjs            # GBK/Big5 pages decoded by their declared charset
 ```
 
 Parser fixtures (`tests/*.html`) run in a normal browser: serve the repo folder over HTTP and open each page. Each one shows PASS or FAIL.
