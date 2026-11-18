@@ -89,6 +89,8 @@ No build step needed. The same folder loads in Firefox and Chrome.
 
 ### Installation
 
+The easiest way is to download the ready-made file for your browser from the [latest release](https://github.com/TheJaydenProject/webnovel-to-epub/releases/latest). Its page walks through installing it. The steps below load it from a copy of this repository instead.
+
 **Firefox**
 
 1. Go to `about:debugging#/runtime/this-firefox`
