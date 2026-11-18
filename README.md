@@ -27,11 +27,29 @@
 <details>
 <summary>Table of contents</summary>
 
-- [About The Project](#about-the-project)
-- [Getting Started](#getting-started)
-- [Usage](#usage)
-- [How It Works](#how-it-works)
+**For everyone**
+
+- [What it does](#what-it-does)
+- [Install it](#install-it)
+- [Download your first book](#download-your-first-book)
+- [Good to know](#good-to-know)
+- [Download many books at once](#download-many-books-at-once)
 - [Supported Sites](#supported-sites)
+- [Something went wrong?](#something-went-wrong)
+
+**Detailed guide**
+
+- [Batch queue in detail](#batch-queue-in-detail)
+- [Gallery scraping](#gallery-scraping)
+- [Sites not on the list](#sites-not-on-the-list)
+- [Adaptive pacing](#adaptive-pacing)
+- [Shared fetching settings](#shared-fetching-settings)
+- [More tips](#more-tips)
+
+**For developers**
+
+- [Install from source](#install-from-source)
+- [How It Works](#how-it-works)
 - [Testing](#testing)
 - [Requesting a New Site](#requesting-a-new-site)
 - [Roadmap](#roadmap)
@@ -40,230 +58,83 @@
 
 </details>
 
-## About The Project
+## What it does
 
-A browser extension for downloading web novels as EPUB files. Give it a TOC page, select your chapters, and it packages the content with cover art and images into a compressed EPUB.
+Web Novel to EPUB saves a web novel from a reading site into one EPUB file: a normal ebook you can open in Apple Books, Google Play Books, Kobo, Calibre, or most e-readers. The book gets its title, author, cover, chapter list, and pictures. It works with 60 sites out of the box and with most other novel sites too.
+
+Everything happens in your own browser. Nothing is uploaded anywhere, and it only reads chapters you can already read yourself.
+
+## Install it
+
+It takes about two minutes. You need Google Chrome (or Edge or Brave) or Firefox.
+
+**Chrome, Edge, or Brave**
+
+1. Go to the [latest release](https://github.com/TheJaydenProject/webnovel-to-epub/releases/latest) and click **webnovel-to-epub-...-chrome.zip** to download it.
+2. Find the downloaded file, right-click it, and choose **Extract All** (Windows) or double-click it (Mac). Put the extracted folder somewhere you will not delete it, such as your Documents folder. The browser keeps using this folder.
+3. In the address bar, type `chrome://extensions` and press Enter. (In Edge, type `edge://extensions`.)
+4. Turn on **Developer mode** with the switch in the top right corner.
+5. Click **Load unpacked** and choose the folder you extracted (the one with a file called `manifest.json` inside).
+6. Click the puzzle-piece icon next to the address bar and click the pin next to **Web Novel to EPUB**, so its book icon always shows.
+
+**Firefox**
+
+1. Go to the [latest release](https://github.com/TheJaydenProject/webnovel-to-epub/releases/latest) and click **webnovel-to-epub-...-firefox.zip** to download it. Do not unzip it.
+2. In the address bar, type `about:debugging#/runtime/this-firefox` and press Enter.
+3. Click **Load Temporary Add-on...** and choose the zip file you downloaded.
+
+Firefox removes add-ons installed this way when you close it, because this copy is not yet signed by Mozilla. Repeat step 3 after restarting Firefox, or install it from the Firefox Add-ons store once it is listed there.
+
+## Download your first book
+
+1. **Open the novel** in your browser. Go to the novel's main page, the one with its title, cover, and list of chapters.
+2. **Click the book icon** in your toolbar. A new tab opens with the novel's address already filled in.
+3. **Click Load chapters.** Leave everything else as it is.
 
 <p align="center">
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="images/demo-source-light.png">
-  <img src="images/demo-source-dark.png" alt="Dashboard with a novel index URL and first chapter URL filled in" width="760">
+  <img src="images/demo-source-dark.png" alt="The extension's page with a novel address filled in and the Load chapters button" width="760">
 </picture>
 </p>
+
+4. **Wait.** The extension reads the chapters one by one, at a polite pace so the site is not overloaded. A long novel can take a while; you can keep using your browser meanwhile, but leave this tab open.
+5. **Your book downloads by itself** when it is done. A green message says it worked. Click **Show in folder** to find the file.
 
 <p align="center">
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="images/demo-chapters-light.png">
-  <img src="images/demo-chapters-dark.png" alt="Loaded novel with cover, chapter checklist, and a successful compile report" width="760">
+  <img src="images/demo-chapters-dark.png" alt="The novel's cover and chapter list, with a message saying the EPUB downloaded successfully" width="760">
 </picture>
 </p>
+
+**Only want some chapters?** Untick **Automatically compile EPUB after loading chapters** before clicking Load chapters. When the list appears, tick the chapters you want (or type a range in **From** and **To** and click **Apply**), then click **Compile EPUB**.
+
+## Good to know
+
+- **Sites that need a login:** sign in to the site in this same browser first. The extension uses your normal login, so you get every chapter your account can read. Paid chapters you have not unlocked are skipped and listed in the report, never saved half-empty.
+- **"Verify you are human" checks:** if a site shows one, the extension brings that tab to the front. Tick the box yourself and the download carries on by itself. The extension never answers these checks for you.
+- **Changed your mind?** Click **Stop** at any time. You still get a book with the chapters read so far.
+- **Will I get banned?** The extension reads one page at a time, waits between pages, and slows down or stops on its own as soon as a site asks it to. It behaves like one person reading quickly, not like a downloader hammering the site.
+- **A site that is not on the list?** Just try it. Paste the novel's main page and click Load chapters. If it cannot find where the story starts, open chapter 1, copy its address into **First chapter URL**, and try again.
+- **Patreon:** open the creator's collection for the novel (an address with `/collection/` in it) and use that. Posts your membership unlocks are included.
+
+## Download many books at once
+
+Click **Batch queue** at the top, paste one novel address per line, click **Add to queue**, then **Start queue**. Each novel becomes its own book, one after another. You can pause or stop at any time, and the list is remembered if you close the tab.
 
 <p align="center">
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="images/demo-queue-light.png">
-  <img src="images/demo-queue-dark.png" alt="Batch queue with two novels waiting" width="760">
+  <img src="images/demo-queue-dark.png" alt="The batch queue with two novels waiting to download" width="760">
 </picture>
 </p>
 
-- Reads the TOC page automatically to pull the title, author, chapter list, and cover art without any manual input
-- Handles Cloudflare-protected and login-gated sites by loading pages in a real background tab using your existing browser session
-- WuxiaWorld users get their API token auto-filled from an open wuxiaworld.com tab
-- EPUB output is DEFLATE-compressed at level 9, so file sizes stay small
-- Auto-compile is on by default, so there is no need to click Compile after chapters finish loading
-- A Stop button lets you bail out early and still get an EPUB with whatever was fetched
-
-60 sites have dedicated support. Any other novel site works too: paste the novel's page and the extension finds chapter 1, the text, and the "Next" links by itself, at a slower and safer pace. More sites are added on request.
-
-### Built With
-
-- [WebExtension APIs (Manifest V3)](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions): one codebase for Firefox and Chrome
-- [JSZip](https://stuk.github.io/jszip/)
-
-## Getting Started
-
-No build step needed. The same folder loads in Firefox and Chrome.
-
-### Prerequisites
-
-- Firefox 115+ or Chrome 121+ (any current version of either)
-
-### Installation
-
-The easiest way is to download the ready-made file for your browser from the [latest release](https://github.com/TheJaydenProject/webnovel-to-epub/releases/latest). Its page walks through installing it. The steps below load it from a copy of this repository instead.
-
-**Firefox**
-
-1. Go to `about:debugging#/runtime/this-firefox`
-2. Click **Load Temporary Add-on...**
-3. Select `manifest.json` from this folder
-
-**Chrome / Edge / Brave**
-
-1. Go to `chrome://extensions`
-2. Turn on **Developer mode**
-3. Click **Load unpacked** and select this folder
-
-The extension icon will appear in your toolbar. On Chrome the icon may be
-hidden behind the puzzle-piece menu until you pin it.
-
-### How one manifest covers both
-
-`manifest.json` declares the background entry twice: `service_worker` for
-Chromium and `scripts` for Firefox. Each browser reads the key it understands
-and ignores the other. `browser-shim.js` aliases `browser` to `chrome` on
-Chromium, where the promise-based `browser.*` namespace used throughout this
-codebase is not available before Chrome 148.
-
-## Usage
-
-1. Open the novel's main page in your browser (the page that shows its title and chapter list)
-2. Click the extension icon. The dashboard opens with that address already filled in
-3. Click **Load chapters**. The **First chapter URL** field is only needed if loading stops early or cannot find chapter 1
-4. Wait for the chapter list to appear
-5. Use **Select all / Select none**, the **From / To** range, or the search box to pick what you want. While searching, the bulk buttons act only on the matching chapters. Shift-click a chapter to select everything between it and the last one you clicked.
-6. Click **Compile EPUB** (or let auto-compile handle it)
-
-The EPUB downloads automatically when done. Use **Show in folder** to find it, and **Copy log** to grab the full console output for a bug report. The tab title shows progress, so you can watch a run from another tab. The browser asks before closing the dashboard while a run is in progress. Your fetching toggles are remembered between sessions.
-
-### Queue multiple novels
-
-Choose **Batch queue**, paste one novel index URL per line, click **Add to queue**, then **Start queue**. Use **Single novel** for the original chapter-selection workflow. Shared fetching settings apply to both modes; single-novel auto-compile and chapter ranges do not apply to queued novels.
-
-After adding links, use each entry's separate **First chapter URL** field when the site's index is incomplete. It saves with the queue and can be corrected before retrying. The field locks while that novel is being processed. Invalid URLs show an inline error and must be corrected before starting. The old pipe format remains an optional paste shortcut:
-
-```text
-https://example.com/novel/book-one
-https://example.com/novel/book-two | https://example.com/novel/book-two/chapter-1
-```
-
-Novels are processed one at a time as separate EPUBs. Overall progress and the active novel's chapter/image progress appear above compact result rows. Expand **Details** for source URLs, full counts, filenames, and errors. **Needs attention only** filters to warnings, failures, stopped novels, and paused entries. Invalid entries and failed novels do not stop the other novels. Duplicate URLs are skipped. **Queue retry** schedules a failed, stopped, or warning result for another attempt; click **Start queue** to run it. A retry downloads a new EPUB.
-
-**Pause after this novel** lets the current EPUB finish and leaves the remaining novels waiting. **Stop current novel** stops at the next checkpoint, saves chapters already compiled where possible, and pauses the queue. **Continue queue** processes waiting entries; retry a stopped novel separately if needed. Requests time out after 60 seconds rather than waiting forever.
-
-Queue entries and reports are saved locally. Reloading restores that dashboard's queue; a newly opened dashboard loads the most recently saved queue. Unfinished entries return **paused**, never start automatically, and restart from the beginning when continued. Completed novels are not downloaded again. If the tab closed during a download, check your downloads before restarting that novel. Keep the tab open while processing: saving the queue does not run conversions in the background. Each dashboard owns a separate snapshot so tabs cannot overwrite each other's reports. Storage failures are shown explicitly.
-
-Each batch entry has an optional **Novel name** field for the EPUB title and filename. Leave it blank to use the site's title. Names are saved with the queue and retained on retry. You can edit waiting novels and the novel being discovered; its name locks when conversion starts.
-
-Success means all selected/discovered content was processed without detected errors and the browser confirmed the download. It cannot guarantee that a site's index exposes every chapter. Warning details identify skipped chapters, missing images and cover art, and interrupted chapter discovery.
-
-### Gallery scraping
-
-Choose **Gallery scraping**, enter `https://dreamy-translations.com/series`, and use the folder picker to select your existing EPUB library. Subfolders are included. Click **Scan & download missing novels** to compare the library, check candidates, and automatically process missing novels through the batch queue. Only jobs added by this scan start automatically. Dreamy is the first supported gallery; other gallery URLs produce an explicit error.
-
-**Skip (Hiatus)** and **Only novels with zero premium chapters** are on by default. The scan checks each candidate's novel page, not just gallery badges. Unknown premium counts are skipped, and enabled filters are checked again before a queued novel starts, including retries. Turning the premium filter off does not unlock paid content; inaccessible chapters are reported by the existing conversion workflow.
-
-**Only completed novels** is optional and off by default. When enabled, only novels listed by Dreamy's own **Completed** gallery filter qualify. Completion is verified again before each download, including after restoring or retrying a queue. If the site filter cannot be verified, the scan stops with an error. Having zero premium chapters does not imply completion; the premium and completion filters work independently.
-
-Matching uses normalized full EPUB titles, filenames, and source URLs. New EPUBs include their source URL so renamed books can still match. Corrupt or unusually large EPUBs fall back to filename matching with a visible warning. Old books with custom titles and no matching source metadata may not be recognized. Existing books are skipped entirely, not checked for new chapters.
-
-The selected folder is read locally and never uploaded or modified. Browsers require a folder picker rather than a typed absolute path. Downloads go to your browser's configured download location; set that location to your EPUB folder if you want the new books saved there. Select the library again after reopening the dashboard. For an empty library, use **Start with an empty library**.
-
-The scan reports existing books, queued books, Hiatus titles, premium titles, unverified counts, and failed checks separately. **Stop scan** discards partial scan results without starting downloads. Once downloads start, use the queue's pause, stop, and retry controls. Keep the dashboard open during scanning and downloading.
-
-### Tips
-
-- **Sites behind Cloudflare or a login wall**: "Use browser tab for fetching" is on by default. Just make sure you are logged in to the site before loading.
-- **Verification checks ("Just a moment...", CAPTCHAs)**: Cloudflare's automatic check usually finishes by itself, so the extension first waits quietly for up to 15 seconds. If the check needs a person, it brings that tab forward. Complete the check yourself and the run continues automatically; the clearance usually covers the rest of the novel. It waits up to 5 minutes, and Stop cancels the wait. The extension never tries to solve or bypass these checks.
-- **Copy-protected readers**: browser-tab fetching reads chapter text rendered inside shadow DOM, and waits for late-loading text instead of reading an empty page.
-- **Flaky connections**: network errors and server errors (5xx) are retried twice with short waits before a chapter is reported as failed.
-- **Patreon**: paste a collection URL (`patreon.com/collection/...`), which becomes one book in reading order, or a creator's page for every post they made. Sign in to Patreon in the same browser and keep "Use browser tab for fetching" on; posts your membership unlocks are included, and the rest are left out and counted in the report.
-- **WuxiaWorld without signing in**: the full chapter list still loads. Free chapters are included and locked ones are reported, instead of saving their preview text.
-- **Dreamy Translations notes**: translator's notes are kept and added as a numbered list at the end of each chapter, so the [1], [2] markers in the text have something to point to.
-- **Sites with incomplete chapter lists**: fill in the First chapter URL and the extension follows "Next chapter" links through the whole series.
-- **WuxiaWorld**: keep a wuxiaworld.com tab open while logged in and the extension fills your API token for you.
-- **Stopping early**: click Stop at any point. You still get an EPUB from whatever chapters were fetched.
-
-### Sites not on the list
-
-You do not need to wait for a site to be added. Paste the novel's page into **Novel index URL** and click **Load chapters**:
-
-1. If the page lists the chapters with numbers ("Chapter 12", "第12章", "Chương 12") from chapter 1 onward, that list is used directly. This needs half as many requests as walking the chapters one by one.
-2. Otherwise the extension looks for a link such as "Start reading", "Read first", or "Chapter 1". It understands these in English, Chinese, Japanese, Korean, Vietnamese, Russian, Spanish, French, and Indonesian. If you pasted a chapter instead of the novel's page, it starts from that chapter.
-3. It follows each chapter's "Next" link until the story ends or a "Next" link leads back to a chapter it already has.
-4. If it cannot find where the story starts, it says so. Open chapter 1 in your browser, copy its address into **First chapter URL**, and click **Load chapters** again.
-
-It also adapts to each site as it goes:
-
-- **Layout**: after the first chapter it remembers which part of the page held the story, and uses that spot on every later chapter and on your next visit, instead of guessing again (and maybe picking up a long comment section). If that spot ever comes back empty, it looks again and learns the new one.
-- **Titles and author**: it drops the site's own name and search-engine dressing such as "Read ... online for free" from book and chapter titles, and reads the author from the page's author tag when there is one.
-- **Speed**: see [Adaptive pacing](#adaptive-pacing). Each site's pace is learned and saved separately.
-
-To avoid getting your account or IP banned on a site nobody has checked yet, the extension:
-
-- Reads one page about every 2 to 3 seconds, a little slower than on supported sites, and only speeds up gradually after many clean pages.
-- Uses your normal browser tab and login, one page at a time, so the site sees an ordinary reader.
-- Pauses on its own when the site says "slow down", stops completely if the site asks for a pause longer than 10 minutes, and never solves or skips CAPTCHAs for you.
-
-If the text comes out wrong or the run stops early, [request the site](https://github.com/TheJaydenProject/webnovel-to-epub/issues/new?template=site_request.md) so it gets a dedicated config.
-
-### Adaptive pacing
-
-Each site gets its own request pace, and the extension learns it as it goes. The goal is to stay fast without getting your IP rate-limited or banned.
-
-| What the site does | What the extension does |
-|---|---|
-| Answers normally | Every 8 clean pages, waits 10% less between requests. It never goes below half the site's polite default (or 0.5 s). |
-| Says "slow down" (HTTP 429, or 503 with `Retry-After`) | Doubles the wait, pauses for as long as the site asks (at least 30 s, growing on repeats), then retries the same chapter on its own. The run continues, and the console notes the pause. |
-| Shows a verification check after it had been answering normally | Triples the wait and stops speeding up for the rest of the session. |
-| Asks for a pause longer than 10 minutes | Stops sending requests to that site and keeps what was fetched, rather than risk a ban. |
-
-Waiting only happens between real requests. Chapters already read while discovering the chapter list are compiled from memory with no delay, so a novel found by following "Next" links is not paced twice.
-
-Learned paces are saved locally per site and drift back to the default after 7 days. A site's limit can only be found by exceeding it, and some sites ban on the first breach without a warning. So the extension never probes past its floor: it speeds up slowly and backs off hard. A 503 on the very first request is treated as the site being down, not as a rate limit, so outages fail fast instead of waiting.
-
-### Shared fetching settings
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| Use browser tab for fetching | On | Loads pages in a real background tab. Required for Cloudflare-protected or login-gated sites |
-| Auto-compile after loading | On | Skips the manual Compile step (single-novel mode only) |
-| WuxiaWorld API token | Auto | Filled from an open wuxiaworld.com tab |
-
-## How It Works
-
-Everything runs inside your browser; there is no server. The toolbar button opens the dashboard, and the dashboard does all fetching, parsing, and packaging itself.
-
-```mermaid
-%%{init: {"flowchart": {"curve": "step", "nodeSpacing": 30, "rankSpacing": 60}}}%%
-flowchart LR
-  user(["<b>Toolbar button</b>"])
-  site(["<b>Novel site</b>"])
-
-  subgraph ext["<b>Extension</b> · manifest.json"]
-    bg["<b>Background worker</b><br/><i>background/background.js</i>"]
-    dash["<b>Dashboard</b><br/><i>ui/main.html, ui/main.js</i>"]
-    reg["<b>Site configs</b><br/><i>core/ParserRegistry.js</i>"]
-    tab["<b>Hidden tab</b><br/><i>fetchViaTab in ui/main.js</i>"]
-    epub["<b>EPUB builder</b><br/><i>core/EpubCompiler.js, JSZip</i>"]
-  end
-  dl[("<b>Downloads folder</b>")]
-
-  user -->|"action.onClicked"| bg
-  bg -->|"tabs.create with the page URL"| dash
-  dash -->|"selectors per hostname"| reg
-  dash -->|"fetch, fast path"| site
-  dash -->|"tabs.create, scripting.executeScript"| tab
-  tab -->|"your logged-in session"| site
-  dash -->|"chapters, cover, images"| epub
-  epub -->|"downloads.download"| dl
-
-  classDef actor fill:#ffffff,stroke:#64748b,stroke-width:1px,color:#0f172a
-  classDef accent fill:#fff7ed,stroke:#f97316,stroke-width:1.5px,color:#0f172a
-  classDef comp fill:#eff6ff,stroke:#2563eb,stroke-width:1px,color:#0f172a
-  classDef store fill:#f8fafc,stroke:#64748b,stroke-width:1px,color:#0f172a
-  class user,site actor
-  class dash accent
-  class bg,reg,tab,epub comp
-  class dl store
-
-  style ext fill:none,stroke:#2563eb,stroke-width:2px
-```
-
-Each chapter is first requested with a plain `fetch()`. If the page comes back locked, blocked, or empty and browser-tab fetching is on, the same URL is loaded in a hidden background tab, so the site sees your normal session, cookies, and rendered JavaScript. Supported sites have a config in `core/ParserRegistry.js` (title, cover, chapter list, body selectors, pacing); other sites fall back to auto-detection in `core/ContentDetector.js`.
-
 ## Supported Sites
 
-Each site below has a dedicated config in `core/ParserRegistry.js`. Dates show the last check against a live novel. Paste the novel's page in either mode. Sites marked "checked in Chrome" sit behind Cloudflare; their selectors were checked in a real browser, because the automated test browser is stopped by the human-verification check.
+These sites have their own setup, so they work best. The date is when each was last checked against a real novel. Any other site is worth a try too (see [Good to know](#good-to-know)).
+
+Sites marked "checked in Chrome" show a "verify you are human" check to automated test browsers, so they were checked by hand in a normal browser instead. For developers: each site's setup lives in `core/ParserRegistry.js`.
 
 <details>
 <summary>60 supported sites (click to expand)</summary>
@@ -351,6 +222,196 @@ Chapters that need an account the site has not granted are reported as locked, n
 | lunarx.to | Offers whole-file uploads, not chapters |
 
 </details>
+
+## Something went wrong?
+
+| What you see | What to do |
+|---|---|
+| "Could not find where this novel starts" | Open chapter 1 of the novel, copy its address from the address bar, paste it into **First chapter URL**, and click **Load chapters** again. |
+| "Chapter is locked" in the report | Sign in to the site in this browser with an account that can read those chapters, then try again. |
+| Only some chapters were found | Paste chapter 1's address into **First chapter URL**; the extension then follows the "Next" buttons through the whole story. |
+| The book has the wrong text (menus, comments) | The site needs its own setup. [Request the site](https://github.com/TheJaydenProject/webnovel-to-epub/issues/new?template=site_request.md) and include the novel's address. |
+| It says the site asked it to slow down | Nothing to do. It waits as long as the site asks and continues by itself. |
+| The extension disappeared from Firefox | Firefox removes test installs when it closes. Load the zip again (step 3 of the Firefox install). |
+| Something else | Click **Copy log** and paste it into a [bug report](https://github.com/TheJaydenProject/webnovel-to-epub/issues/new?template=bug_report.md). |
+
+---
+
+**The rest of this page goes into more detail.** You do not need it to use the extension.
+
+## Batch queue in detail
+
+Choose **Batch queue**, paste one novel index URL per line, click **Add to queue**, then **Start queue**. Use **Single novel** for the original chapter-selection workflow. Shared fetching settings apply to both modes; single-novel auto-compile and chapter ranges do not apply to queued novels.
+
+After adding links, use each entry's separate **First chapter URL** field when the site's index is incomplete. It saves with the queue and can be corrected before retrying. The field locks while that novel is being processed. Invalid URLs show an inline error and must be corrected before starting. The old pipe format remains an optional paste shortcut:
+
+```text
+https://example.com/novel/book-one
+https://example.com/novel/book-two | https://example.com/novel/book-two/chapter-1
+```
+
+Novels are processed one at a time as separate EPUBs. Overall progress and the active novel's chapter/image progress appear above compact result rows. Expand **Details** for source URLs, full counts, filenames, and errors. **Needs attention only** filters to warnings, failures, stopped novels, and paused entries. Invalid entries and failed novels do not stop the other novels. Duplicate URLs are skipped. **Queue retry** schedules a failed, stopped, or warning result for another attempt; click **Start queue** to run it. A retry downloads a new EPUB.
+
+**Pause after this novel** lets the current EPUB finish and leaves the remaining novels waiting. **Stop current novel** stops at the next checkpoint, saves chapters already compiled where possible, and pauses the queue. **Continue queue** processes waiting entries; retry a stopped novel separately if needed. Requests time out after 60 seconds rather than waiting forever.
+
+Queue entries and reports are saved locally. Reloading restores that dashboard's queue; a newly opened dashboard loads the most recently saved queue. Unfinished entries return **paused**, never start automatically, and restart from the beginning when continued. Completed novels are not downloaded again. If the tab closed during a download, check your downloads before restarting that novel. Keep the tab open while processing: saving the queue does not run conversions in the background. Each dashboard owns a separate snapshot so tabs cannot overwrite each other's reports. Storage failures are shown explicitly.
+
+Each batch entry has an optional **Novel name** field for the EPUB title and filename. Leave it blank to use the site's title. Names are saved with the queue and retained on retry. You can edit waiting novels and the novel being discovered; its name locks when conversion starts.
+
+Success means all selected/discovered content was processed without detected errors and the browser confirmed the download. It cannot guarantee that a site's index exposes every chapter. Warning details identify skipped chapters, missing images and cover art, and interrupted chapter discovery.
+
+## Gallery scraping
+
+Choose **Gallery scraping**, enter `https://dreamy-translations.com/series`, and use the folder picker to select your existing EPUB library. Subfolders are included. Click **Scan & download missing novels** to compare the library, check candidates, and automatically process missing novels through the batch queue. Only jobs added by this scan start automatically. Dreamy is the first supported gallery; other gallery URLs produce an explicit error.
+
+**Skip (Hiatus)** and **Only novels with zero premium chapters** are on by default. The scan checks each candidate's novel page, not just gallery badges. Unknown premium counts are skipped, and enabled filters are checked again before a queued novel starts, including retries. Turning the premium filter off does not unlock paid content; inaccessible chapters are reported by the existing conversion workflow.
+
+**Only completed novels** is optional and off by default. When enabled, only novels listed by Dreamy's own **Completed** gallery filter qualify. Completion is verified again before each download, including after restoring or retrying a queue. If the site filter cannot be verified, the scan stops with an error. Having zero premium chapters does not imply completion; the premium and completion filters work independently.
+
+Matching uses normalized full EPUB titles, filenames, and source URLs. New EPUBs include their source URL so renamed books can still match. Corrupt or unusually large EPUBs fall back to filename matching with a visible warning. Old books with custom titles and no matching source metadata may not be recognized. Existing books are skipped entirely, not checked for new chapters.
+
+The selected folder is read locally and never uploaded or modified. Browsers require a folder picker rather than a typed absolute path. Downloads go to your browser's configured download location; set that location to your EPUB folder if you want the new books saved there. Select the library again after reopening the dashboard. For an empty library, use **Start with an empty library**.
+
+The scan reports existing books, queued books, Hiatus titles, premium titles, unverified counts, and failed checks separately. **Stop scan** discards partial scan results without starting downloads. Once downloads start, use the queue's pause, stop, and retry controls. Keep the dashboard open during scanning and downloading.
+
+## Sites not on the list
+
+You do not need to wait for a site to be added. Paste the novel's page into **Novel index URL** and click **Load chapters**:
+
+1. If the page lists the chapters with numbers ("Chapter 12", "第12章", "Chương 12") from chapter 1 onward, that list is used directly. This needs half as many requests as walking the chapters one by one.
+2. Otherwise the extension looks for a link such as "Start reading", "Read first", or "Chapter 1". It understands these in English, Chinese, Japanese, Korean, Vietnamese, Russian, Spanish, French, and Indonesian. If you pasted a chapter instead of the novel's page, it starts from that chapter.
+3. It follows each chapter's "Next" link until the story ends or a "Next" link leads back to a chapter it already has.
+4. If it cannot find where the story starts, it says so. Open chapter 1 in your browser, copy its address into **First chapter URL**, and click **Load chapters** again.
+
+It also adapts to each site as it goes:
+
+- **Layout**: after the first chapter it remembers which part of the page held the story, and uses that spot on every later chapter and on your next visit, instead of guessing again (and maybe picking up a long comment section). If that spot ever comes back empty, it looks again and learns the new one.
+- **Titles and author**: it drops the site's own name and search-engine dressing such as "Read ... online for free" from book and chapter titles, and reads the author from the page's author tag when there is one.
+- **Speed**: see [Adaptive pacing](#adaptive-pacing). Each site's pace is learned and saved separately.
+
+To avoid getting your account or IP banned on a site nobody has checked yet, the extension:
+
+- Reads one page about every 2 to 3 seconds, a little slower than on supported sites, and only speeds up gradually after many clean pages.
+- Uses your normal browser tab and login, one page at a time, so the site sees an ordinary reader.
+- Pauses on its own when the site says "slow down", stops completely if the site asks for a pause longer than 10 minutes, and never solves or skips CAPTCHAs for you.
+
+If the text comes out wrong or the run stops early, [request the site](https://github.com/TheJaydenProject/webnovel-to-epub/issues/new?template=site_request.md) so it gets a dedicated config.
+
+## Adaptive pacing
+
+Each site gets its own request pace, and the extension learns it as it goes. The goal is to stay fast without getting your IP rate-limited or banned.
+
+| What the site does | What the extension does |
+|---|---|
+| Answers normally | Every 8 clean pages, waits 10% less between requests. It never goes below half the site's polite default (or 0.5 s). |
+| Says "slow down" (HTTP 429, or 503 with `Retry-After`) | Doubles the wait, pauses for as long as the site asks (at least 30 s, growing on repeats), then retries the same chapter on its own. The run continues, and the console notes the pause. |
+| Shows a verification check after it had been answering normally | Triples the wait and stops speeding up for the rest of the session. |
+| Asks for a pause longer than 10 minutes | Stops sending requests to that site and keeps what was fetched, rather than risk a ban. |
+
+Waiting only happens between real requests. Chapters already read while discovering the chapter list are compiled from memory with no delay, so a novel found by following "Next" links is not paced twice.
+
+Learned paces are saved locally per site and drift back to the default after 7 days. A site's limit can only be found by exceeding it, and some sites ban on the first breach without a warning. So the extension never probes past its floor: it speeds up slowly and backs off hard. A 503 on the very first request is treated as the site being down, not as a rate limit, so outages fail fast instead of waiting.
+
+## Shared fetching settings
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| Use browser tab for fetching | On | Loads pages in a real background tab. Required for Cloudflare-protected or login-gated sites |
+| Auto-compile after loading | On | Skips the manual Compile step (single-novel mode only) |
+| WuxiaWorld API token | Auto | Filled from an open wuxiaworld.com tab |
+
+## More tips
+
+- **Sites behind Cloudflare or a login wall**: "Use browser tab for fetching" is on by default. Just make sure you are logged in to the site before loading.
+- **Verification checks ("Just a moment...", CAPTCHAs)**: Cloudflare's automatic check usually finishes by itself, so the extension first waits quietly for up to 15 seconds. If the check needs a person, it brings that tab forward. Complete the check yourself and the run continues automatically; the clearance usually covers the rest of the novel. It waits up to 5 minutes, and Stop cancels the wait. The extension never tries to solve or bypass these checks.
+- **Copy-protected readers**: browser-tab fetching reads chapter text rendered inside shadow DOM, and waits for late-loading text instead of reading an empty page.
+- **Flaky connections**: network errors and server errors (5xx) are retried twice with short waits before a chapter is reported as failed.
+- **Patreon**: paste a collection URL (`patreon.com/collection/...`), which becomes one book in reading order, or a creator's page for every post they made. Sign in to Patreon in the same browser and keep "Use browser tab for fetching" on; posts your membership unlocks are included, and the rest are left out and counted in the report.
+- **WuxiaWorld without signing in**: the full chapter list still loads. Free chapters are included and locked ones are reported, instead of saving their preview text.
+- **Dreamy Translations notes**: translator's notes are kept and added as a numbered list at the end of each chapter, so the [1], [2] markers in the text have something to point to.
+- **Sites with incomplete chapter lists**: fill in the First chapter URL and the extension follows "Next chapter" links through the whole series.
+- **WuxiaWorld**: keep a wuxiaworld.com tab open while logged in and the extension fills your API token for you.
+- **Stopping early**: click Stop at any point. You still get an EPUB from whatever chapters were fetched.
+
+---
+
+**For developers.** How to run it from the code, how it is built, and how it is tested.
+
+## Install from source
+
+No build step needed. The same folder loads in Firefox and Chrome.
+
+**Requirements:** Firefox 115+ or Chrome 121+ (any current version of either)
+
+**Firefox**
+
+1. Go to `about:debugging#/runtime/this-firefox`
+2. Click **Load Temporary Add-on...**
+3. Select `manifest.json` from this folder
+
+**Chrome / Edge / Brave**
+
+1. Go to `chrome://extensions`
+2. Turn on **Developer mode**
+3. Click **Load unpacked** and select this folder
+
+The extension icon will appear in your toolbar. On Chrome the icon may be
+hidden behind the puzzle-piece menu until you pin it.
+
+### How one manifest covers both
+
+`manifest.json` declares the background entry twice: `service_worker` for
+Chromium and `scripts` for Firefox. Each browser reads the key it understands
+and ignores the other. `browser-shim.js` aliases `browser` to `chrome` on
+Chromium, where the promise-based `browser.*` namespace used throughout this
+codebase is not available before Chrome 148.
+
+### Built With
+
+- [WebExtension APIs (Manifest V3)](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions): one codebase for Firefox and Chrome
+- [JSZip](https://stuk.github.io/jszip/)
+
+## How It Works
+
+Everything runs inside your browser; there is no server. The toolbar button opens the dashboard, and the dashboard does all fetching, parsing, and packaging itself.
+
+```mermaid
+%%{init: {"flowchart": {"curve": "step", "nodeSpacing": 30, "rankSpacing": 60}}}%%
+flowchart LR
+  user(["<b>Toolbar button</b>"])
+  site(["<b>Novel site</b>"])
+
+  subgraph ext["<b>Extension</b> · manifest.json"]
+    bg["<b>Background worker</b><br/><i>background/background.js</i>"]
+    dash["<b>Dashboard</b><br/><i>ui/main.html, ui/main.js</i>"]
+    reg["<b>Site configs</b><br/><i>core/ParserRegistry.js</i>"]
+    tab["<b>Hidden tab</b><br/><i>fetchViaTab in ui/main.js</i>"]
+    epub["<b>EPUB builder</b><br/><i>core/EpubCompiler.js, JSZip</i>"]
+  end
+  dl[("<b>Downloads folder</b>")]
+
+  user -->|"action.onClicked"| bg
+  bg -->|"tabs.create with the page URL"| dash
+  dash -->|"selectors per hostname"| reg
+  dash -->|"fetch, fast path"| site
+  dash -->|"tabs.create, scripting.executeScript"| tab
+  tab -->|"your logged-in session"| site
+  dash -->|"chapters, cover, images"| epub
+  epub -->|"downloads.download"| dl
+
+  classDef actor fill:#ffffff,stroke:#64748b,stroke-width:1px,color:#0f172a
+  classDef accent fill:#fff7ed,stroke:#f97316,stroke-width:1.5px,color:#0f172a
+  classDef comp fill:#eff6ff,stroke:#2563eb,stroke-width:1px,color:#0f172a
+  classDef store fill:#f8fafc,stroke:#64748b,stroke-width:1px,color:#0f172a
+  class user,site actor
+  class dash accent
+  class bg,reg,tab,epub comp
+  class dl store
+
+  style ext fill:none,stroke:#2563eb,stroke-width:2px
+```
+
+Each chapter is first requested with a plain `fetch()`. If the page comes back locked, blocked, or empty and browser-tab fetching is on, the same URL is loaded in a hidden background tab, so the site sees your normal session, cookies, and rendered JavaScript. Supported sites have a config in `core/ParserRegistry.js` (title, cover, chapter list, body selectors, pacing); other sites fall back to auto-detection in `core/ContentDetector.js`.
 
 ## Testing
 
